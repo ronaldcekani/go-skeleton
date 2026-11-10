@@ -1,0 +1,55 @@
+# Local development configuration. Every key can be overridden with an
+# environment variable: APP_ prefix, upper case, "__" between nesting levels,
+# e.g. APP_HTTP__PORT=8081 or APP_POSTGRES__DSN=postgres://...
+service:
+  name: go-skeleton
+  version: dev
+  environment: local
+
+log:
+  level: debug   # debug | info | warn | error
+  format: text   # json | text
+
+http:
+  host: 0.0.0.0
+  port: 8080
+  read_header_timeout: 5s
+  read_timeout: 15s
+  write_timeout: 30s
+  idle_timeout: 60s
+
+grpc:
+  host: 0.0.0.0
+  port: 9090
+  reflection: true
+
+postgres:
+  dsn: postgres://postgres:postgres@localhost:5432/skeleton?sslmode=disable
+  max_open_conns: 20
+  max_idle_conns: 10
+  conn_max_lifetime: 30m
+  conn_max_idle_time: 5m
+
+redis:
+  addr: localhost:6379
+  username: ""
+  password: ""
+  db: 0
+  cache_ttl: 5m
+
+kafka:
+  enabled: true
+  brokers: [localhost:9092]
+  client_id: go-skeleton
+  items_topic: items.events
+  consumer_group: go-skeleton
+
+telemetry:
+  enabled: true
+  otlp_endpoint: localhost:4317
+  otlp_insecure: true
+  trace_sampling: 1.0
+  metric_interval: 15s
+
+shutdown:
+  timeout: 20s

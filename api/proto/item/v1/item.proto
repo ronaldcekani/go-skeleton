@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package item.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/example/go-skeleton/internal/gen/proto/item/v1;itemv1";
+
+// ItemService is the example gRPC API served by the skeleton application.
+service ItemService {
+  rpc CreateItem(CreateItemRequest) returns (CreateItemResponse);
+  rpc GetItem(GetItemRequest) returns (GetItemResponse);
+  rpc ListItems(ListItemsRequest) returns (ListItemsResponse);
+  rpc DeleteItem(DeleteItemRequest) returns (DeleteItemResponse);
+}
+
+message Item {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message CreateItemRequest {
+  string name = 1;
+  string description = 2;
+}
+
+message CreateItemResponse {
+  Item item = 1;
+}
+
+message GetItemRequest {
+  string id = 1;
+}
+
+message GetItemResponse {
+  Item item = 1;
+}
+
+message ListItemsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+}
+
+message ListItemsResponse {
+  repeated Item items = 1;
+  int64 total = 2;
+}
+
+message DeleteItemRequest {
+  string id = 1;
+}
+
+message DeleteItemResponse {}
