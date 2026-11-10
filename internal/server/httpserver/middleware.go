@@ -2,8 +2,10 @@ package httpserver
 
 import (
 	"log/slog"
+	"math"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -11,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/example/go-skeleton/internal/domain"
+	"github.com/example/go-skeleton/internal/server/policy"
 )
 
 // routeTag names the server span after the matched route pattern (for example
@@ -29,6 +32,31 @@ func routeTag(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// authorize authenticates and rate limits the request according to the policy
+// of the matched operation. On success the request context carries the
+// caller's domain.Principal.
+func authorize(enforcer *policy.Enforcer, policies policy.Table, operations map[string]string, onError func(http.ResponseWriter, *http.Request, error)) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p := policies.HTTP(operations[r.Pattern])
+			token := policy.BearerToken(r.Header.Get("Authorization"))
+
+			ctx, retryAfter, err := enforcer.Enforce(r.Context(), p, token)
+			if err != nil {
+				switch domain.KindOf(err) {
+				case domain.ErrKindUnauthenticated:
+					w.Header().Set("WWW-Authenticate", "Bearer")
+				case domain.ErrKindRateLimited:
+					w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retryAfter.Seconds()))))
+				}
+				onError(w, r, err)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }
 
 // statusRecorder captures the response status and size for the access log.

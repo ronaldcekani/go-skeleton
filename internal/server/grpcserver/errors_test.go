@@ -30,6 +30,7 @@ func TestErrorInterceptor(t *testing.T) {
 		"conflict":            {domain.Conflict("name already taken"), codes.AlreadyExists, "name already taken"},
 		"unauthenticated":     {domain.NewError(domain.ErrKindUnauthenticated, "sign in"), codes.Unauthenticated, "sign in"},
 		"permission denied":   {domain.NewError(domain.ErrKindPermissionDenied, "not yours"), codes.PermissionDenied, "not yours"},
+		"rate limited":        {domain.NewError(domain.ErrKindRateLimited, "rate limit exceeded"), codes.ResourceExhausted, "rate limit exceeded"},
 		"unknown error":       {errors.New("pq: password is hunter2"), codes.Internal, "internal server error"},
 		"deadline exceeded":   {context.DeadlineExceeded, codes.DeadlineExceeded, "deadline exceeded"},
 		"canceled":            {context.Canceled, codes.Canceled, "request canceled"},

@@ -1,0 +1,30 @@
+{
+  "realm": "skeleton",
+  "enabled": true,
+  "accessTokenLifespan": 300,
+  "roles": {
+    "realm": [{ "name": "user" }]
+  },
+  "clients": [
+    {
+      "clientId": "skeleton-cli",
+      "name": "Local development client",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true
+    }
+  ],
+  "users": [
+    {
+      "username": "demo",
+      "enabled": true,
+      "email": "demo@example.com",
+      "emailVerified": true,
+      "firstName": "Demo",
+      "lastName": "User",
+      "realmRoles": ["user"],
+      "credentials": [{ "type": "password", "value": "demo", "temporary": false }]
+    }
+  ]
+}

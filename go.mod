@@ -5,8 +5,12 @@ go 1.26.0
 toolchain go1.26.11
 
 require (
+	github.com/MicahParks/jwkset v0.11.4
+	github.com/MicahParks/keyfunc/v3 v3.9.1
 	github.com/XSAM/otelsql v0.44.0
 	github.com/getkin/kin-openapi v0.153.0
+	github.com/go-redis/redis_rate/v10 v10.0.1
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/jmoiron/sqlx v1.4.0
@@ -33,7 +37,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/sdk/metric v1.47.0
 	go.opentelemetry.io/otel/trace v1.47.0
-	golang.org/x/sync v0.25.0
+	golang.org/x/time v0.15.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 )
@@ -73,6 +77,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	go.yaml.in/yaml/v4 v4.0.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20261110000943-09e21b237f2c // indirect

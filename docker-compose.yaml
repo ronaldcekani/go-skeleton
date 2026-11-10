@@ -56,6 +56,21 @@ services:
       - "3000:3000" # Grafana
       - "4317:4317" # OTLP gRPC
 
+  # Keycloak with a ready-made "skeleton" realm: public client skeleton-cli,
+  # user demo / demo. Admin console: http://localhost:8081 (admin / admin).
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm"]
+    ports: ["8081:8081"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_PORT: 8081
+      # Fixes the issuer in tokens to this URL no matter how Keycloak is reached.
+      KC_HOSTNAME: http://localhost:8081
+    volumes:
+      - ./deploy/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
+
   migrate:
     profiles: [app]
     build: .
@@ -76,12 +91,17 @@ services:
       APP_REDIS__ADDR: redis:6379
       APP_KAFKA__BROKERS: kafka:29092
       APP_TELEMETRY__OTLP_ENDPOINT: otel:4317
+      # Tokens carry the localhost issuer; the keys are fetched over the
+      # compose network.
+      APP_AUTH__ISSUER: http://localhost:8081/realms/skeleton
+      APP_AUTH__JWKS_URL: http://keycloak:8081/realms/skeleton/protocol/openid-connect/certs
     # Must exceed shutdown.timeout so Docker does not SIGKILL a draining app.
     stop_grace_period: 30s
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       kafka: { condition: service_healthy }
+      keycloak: { condition: service_started }
 
 volumes:
   postgres-data:

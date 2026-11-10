@@ -51,5 +51,33 @@ telemetry:
   trace_sampling: 1.0
   metric_interval: 15s
 
+# Keycloak access token verification. Tokens are verified locally against
+# the realm's signing keys, which are fetched and refreshed in the background.
+auth:
+  enabled: true
+  issuer: http://localhost:8081/realms/skeleton
+  jwks_url: ""   # default: <issuer>/protocol/openid-connect/certs
+  audience: ""   # optional: require this value in the token's "aud" claim
+  leeway: 10s
+
+rate_limit:
+  enabled: true
+
+# Per-endpoint access rules, shared by HTTP and gRPC. An endpoint that no rule
+# mentions requires a valid token and has no rate limit.
+#   http: OpenAPI operationIds        grpc: package.Service/Method
+# Endpoints in one rule share one rate limit bucket per user (token "sub").
+endpoints:
+  rules:
+    - name: read-items
+      http: [listItems, getItem]
+      grpc: [item.v1.ItemService/ListItems, item.v1.ItemService/GetItem]
+      rate_limit: { requests: 120, period: 1m }
+    - name: write-items
+      http: [createItem, deleteItem]
+      grpc: [item.v1.ItemService/CreateItem, item.v1.ItemService/DeleteItem]
+      rate_limit: { requests: 20, period: 1m, burst: 5 }
+
 shutdown:
   timeout: 20s
+  drain_delay: 0s   # set to ~5s on Kubernetes
