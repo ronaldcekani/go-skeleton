@@ -44,7 +44,7 @@ func (r *ItemRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Item
 	var out domain.Item
 	if err := r.db.GetContext(ctx, &out, q, id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.Item{}, domain.ErrNotFound
+			return domain.Item{}, domain.NotFound("item not found")
 		}
 		return domain.Item{}, fmt.Errorf("select item: %w", err)
 	}
@@ -80,7 +80,7 @@ func (r *ItemRepository) Delete(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("delete item: %w", err)
 	}
 	if n == 0 {
-		return domain.ErrNotFound
+		return domain.NotFound("item not found")
 	}
 	return nil
 }

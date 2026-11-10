@@ -9,6 +9,8 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/example/go-skeleton/internal/domain"
 )
 
 // routeTag names the server span after the matched route pattern (for example
@@ -99,7 +101,7 @@ func recoverer(log *slog.Logger) func(http.Handler) http.Handler {
 				}
 				log.ErrorContext(r.Context(), "http handler panicked",
 					slog.Any("panic", v), slog.String("stack", string(debug.Stack())))
-				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+				writeErrorBody(w, http.StatusInternalServerError, domain.ErrKindInternal.String(), "internal server error")
 			}()
 			next.ServeHTTP(w, r)
 		})

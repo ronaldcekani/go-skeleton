@@ -94,6 +94,40 @@ The build then fails until the handlers in `internal/server/...` implement
 the new generated interface. Incoming HTTP requests are validated against the
 OpenAPI spec before they reach a handler.
 
+## Inputs and errors
+
+Handlers build a domain input (`domain.CreateItemInput`) and pass it to the
+service. Inputs carry their own `Validate()` for rules that depend only on
+the input; rules that need other state stay in the service.
+
+Every layer returns plain Go errors. An error that should reach the client
+is a `*domain.Error` with a kind and a client-safe message:
+
+```go
+return domain.NotFound("item not found")
+return domain.WrapError(domain.ErrKindConflict, err, "name already taken")
+```
+
+Handlers never choose status codes. Each transport translates kinds in one
+place:
+
+| Kind                      | HTTP | gRPC               |
+| ------------------------- | ---- | ------------------ |
+| `ErrKindInvalidInput`     | 400  | `InvalidArgument`  |
+| `ErrKindNotFound`         | 404  | `NotFound`         |
+| `ErrKindConflict`         | 409  | `AlreadyExists`    |
+| `ErrKindUnauthenticated`  | 401  | `Unauthenticated`  |
+| `ErrKindPermissionDenied` | 403  | `PermissionDenied` |
+| `ErrKindInternal`         | 500  | `Internal`         |
+
+- HTTP: `writeError` in `internal/server/httpserver/errors.go`.
+- gRPC: `errorInterceptor` in `internal/server/grpcserver/errors.go`.
+
+Any error that is not a `*domain.Error` (a failed query, a bug) is internal:
+it is logged with its cause and the client only sees "internal server error".
+To add a kind, add the constant and its name in `internal/domain/errors.go`
+and one line in each of the two mapping functions.
+
 ## Configuration
 
 Every key in `config/config.yaml` can be overridden by an environment
