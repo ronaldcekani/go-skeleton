@@ -13,7 +13,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/example/go-skeleton/internal/app"
+	"github.com/example/go-skeleton/internal/application/app"
+	"github.com/example/go-skeleton/internal/application/migration"
 	"github.com/example/go-skeleton/internal/config"
 	"github.com/example/go-skeleton/internal/platform/logger"
 )
@@ -55,7 +56,12 @@ func run() int {
 		stop()
 	}()
 
-	if err := app.Run(ctx, cfg, log); err != nil {
+	// Each operation mode is a package under internal/application.
+	modes := map[string]func(context.Context, config.Config, *slog.Logger) error{
+		config.ModeApp:       app.Run,
+		config.ModeMigration: migration.Run,
+	}
+	if err := modes[cfg.Mode](ctx, cfg, log); err != nil {
 		log.Error("exited with error", slog.String("mode", cfg.Mode), slog.Any("error", err))
 		return 1
 	}

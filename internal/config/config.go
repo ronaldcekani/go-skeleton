@@ -40,6 +40,9 @@ type Config struct {
 	Redis     Redis     `koanf:"redis"`
 	Kafka     Kafka     `koanf:"kafka"`
 	Telemetry Telemetry `koanf:"telemetry"`
+	Auth      Auth      `koanf:"auth"`
+	RateLimit RateLimit `koanf:"rate_limit"`
+	Endpoints Endpoints `koanf:"endpoints"`
 	Migration Migration `koanf:"migration"`
 	Shutdown  Shutdown  `koanf:"shutdown"`
 }
@@ -106,8 +109,63 @@ type Migration struct {
 	Command string `koanf:"command"` // up, down, status
 }
 
+// Auth configures verification of Keycloak access tokens.
+type Auth struct {
+	Enabled bool `koanf:"enabled"`
+	// Issuer is the realm URL, e.g. https://keycloak.example.com/realms/acme.
+	// It must match the token's "iss" claim exactly.
+	Issuer string `koanf:"issuer"`
+	// JWKSURL is where the realm's signing keys are fetched from. Empty
+	// means Issuer + "/protocol/openid-connect/certs". Set it when the app
+	// reaches Keycloak on a different address than the one in the tokens.
+	JWKSURL string `koanf:"jwks_url"`
+	// Audience, if set, must be present in the token's "aud" claim.
+	Audience string        `koanf:"audience"`
+	Leeway   time.Duration `koanf:"leeway"`
+}
+
+// RateLimit switches rate limiting on or off globally; the limits themselves
+// are set per endpoint rule.
+type RateLimit struct {
+	Enabled bool `koanf:"enabled"`
+}
+
+// Endpoints holds the per-endpoint access rules. An endpoint that no rule
+// mentions requires a valid token and has no rate limit.
+type Endpoints struct {
+	Rules []EndpointRule `koanf:"rules"`
+}
+
+// EndpointRule applies one policy to a set of HTTP operations and gRPC
+// methods. Endpoints in the same rule share one rate limit bucket per user.
+type EndpointRule struct {
+	Name string `koanf:"name"`
+	// HTTP lists OpenAPI operationIds, e.g. createItem.
+	HTTP []string `koanf:"http"`
+	// GRPC lists methods as package.Service/Method, e.g. item.v1.ItemService/CreateItem.
+	GRPC []string `koanf:"grpc"`
+	// Public endpoints need no token. They cannot be rate limited, because
+	// limits are counted per token subject.
+	Public    bool           `koanf:"public"`
+	RateLimit *EndpointLimit `koanf:"rate_limit"`
+}
+
+// EndpointLimit allows Requests per Period for each user, with bursts of up
+// to Burst requests (default: Requests).
+type EndpointLimit struct {
+	Requests int           `koanf:"requests"`
+	Period   time.Duration `koanf:"period"`
+	Burst    int           `koanf:"burst"`
+}
+
 type Shutdown struct {
+	// Timeout is the total budget for a graceful shutdown: drain delay,
+	// stopping servers and consumers, and closing resources.
 	Timeout time.Duration `koanf:"timeout"`
+	// DrainDelay is how long the app keeps serving after it starts reporting
+	// not-ready, so load balancers stop routing to it before connections
+	// close. Set it to a few seconds on Kubernetes; 0 disables it.
+	DrainDelay time.Duration `koanf:"drain_delay"`
 }
 
 // Default returns the configuration used when nothing overrides it.
@@ -152,7 +210,13 @@ func Default() Config {
 			MetricInterval: 15 * time.Second,
 		},
 		Migration: Migration{Command: "up"},
-		Shutdown:  Shutdown{Timeout: 20 * time.Second},
+		Auth: Auth{
+			Enabled: true,
+			Issuer:  "http://localhost:8081/realms/skeleton",
+			Leeway:  10 * time.Second,
+		},
+		RateLimit: RateLimit{Enabled: true},
+		Shutdown:  Shutdown{Timeout: 20 * time.Second, DrainDelay: 5 * time.Second},
 	}
 }
 
@@ -216,6 +280,35 @@ func Load(args []string) (Config, error) {
 	return cfg, nil
 }
 
+// validate checks the rules on their own. Whether the endpoints they name
+// exist is checked by the servers at startup, which know their routes.
+func (e Endpoints) validate() error {
+	var errs []error
+	names := map[string]bool{}
+	for i, r := range e.Rules {
+		at := fmt.Sprintf("endpoints.rules[%d]", i)
+		switch {
+		case r.Name == "":
+			errs = append(errs, fmt.Errorf("%s.name: required", at))
+		case names[r.Name]:
+			errs = append(errs, fmt.Errorf("%s.name: %q is used by more than one rule", at, r.Name))
+		}
+		names[r.Name] = true
+		if len(r.HTTP) == 0 && len(r.GRPC) == 0 {
+			errs = append(errs, fmt.Errorf("%s: lists no http operations or grpc methods", at))
+		}
+		if l := r.RateLimit; l != nil {
+			if r.Public {
+				errs = append(errs, fmt.Errorf("%s: a public rule cannot have a rate_limit (limits are per token subject)", at))
+			}
+			if l.Requests <= 0 || l.Period <= 0 || l.Burst < 0 {
+				errs = append(errs, fmt.Errorf("%s.rate_limit: requests and period must be positive, burst must not be negative", at))
+			}
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // Validate reports every problem found so they can be fixed in one pass.
 func (c Config) Validate() error {
 	var errs []error
@@ -258,6 +351,13 @@ func (c Config) Validate() error {
 		if c.Shutdown.Timeout <= 0 {
 			errs = append(errs, errors.New("shutdown.timeout: must be positive"))
 		}
+		if c.Shutdown.DrainDelay < 0 || c.Shutdown.DrainDelay >= c.Shutdown.Timeout {
+			errs = append(errs, errors.New("shutdown.drain_delay: must be at least 0 and less than shutdown.timeout"))
+		}
+		if c.Auth.Enabled && c.Auth.Issuer == "" {
+			errs = append(errs, errors.New("auth.issuer: required when auth is enabled"))
+		}
+		errs = append(errs, c.Endpoints.validate())
 	}
 	if c.Telemetry.Enabled {
 		if c.Telemetry.OTLPEndpoint == "" {

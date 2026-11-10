@@ -19,6 +19,7 @@ const (
 	ErrKindConflict
 	ErrKindUnauthenticated
 	ErrKindPermissionDenied
+	ErrKindRateLimited
 )
 
 // String returns the stable, machine-readable name of the kind. It is used
@@ -35,6 +36,8 @@ func (k ErrKind) String() string {
 		return "unauthenticated"
 	case ErrKindPermissionDenied:
 		return "permission_denied"
+	case ErrKindRateLimited:
+		return "rate_limited"
 	default:
 		return "internal"
 	}
@@ -73,6 +76,10 @@ func InvalidInput(format string, args ...any) *Error {
 
 func NotFound(format string, args ...any) *Error {
 	return NewError(ErrKindNotFound, format, args...)
+}
+
+func Unauthenticated(format string, args ...any) *Error {
+	return NewError(ErrKindUnauthenticated, format, args...)
 }
 
 func Conflict(format string, args ...any) *Error {

@@ -1,4 +1,6 @@
-package app
+// Package migration is the "migration" operation mode: it applies, rolls back
+// or reports the embedded SQL migrations and then exits.
+package migration
 
 import (
 	"context"
@@ -9,22 +11,29 @@ import (
 	"github.com/pressly/goose/v3/lock"
 
 	"github.com/example/go-skeleton/internal/config"
+	"github.com/example/go-skeleton/internal/platform/postgres"
 	"github.com/example/go-skeleton/migrations"
 )
 
-// runMigration applies, rolls back or reports the embedded SQL migrations and
-// then exits. goose takes a Postgres advisory lock, so several instances can
-// start at once (e.g. as init containers) and only one will migrate.
-func runMigration(ctx context.Context, cfg config.Config, log *slog.Logger) error {
-	db, err := openPostgres(ctx, cfg)
+// Run executes cfg.Migration.Command. goose takes a Postgres advisory lock,
+// so several instances can start at once (e.g. as init containers) and only
+// one will migrate.
+func Run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
+	db, err := postgres.Open(ctx, postgres.Options{
+		DSN:             cfg.Postgres.DSN,
+		MaxOpenConns:    2,
+		MaxIdleConns:    2,
+		ConnMaxLifetime: cfg.Postgres.ConnMaxLifetime,
+		ConnMaxIdleTime: cfg.Postgres.ConnMaxIdleTime,
+	})
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	locker, err := newSessionLocker()
+	locker, err := lock.NewPostgresSessionLocker()
 	if err != nil {
-		return err
+		return fmt.Errorf("create migration lock: %w", err)
 	}
 	provider, err := goose.NewProvider(goose.DialectPostgres, db.DB, migrations.FS,
 		goose.WithSessionLocker(locker),
@@ -69,12 +78,4 @@ func runMigration(ctx context.Context, cfg config.Config, log *slog.Logger) erro
 		return fmt.Errorf("unknown migration command %q", cfg.Migration.Command)
 	}
 	return nil
-}
-
-func newSessionLocker() (lock.SessionLocker, error) {
-	locker, err := lock.NewPostgresSessionLocker()
-	if err != nil {
-		return nil, fmt.Errorf("create migration lock: %w", err)
-	}
-	return locker, nil
 }

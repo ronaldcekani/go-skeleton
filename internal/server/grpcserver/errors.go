@@ -25,6 +25,8 @@ func codeFromKind(kind domain.ErrKind) codes.Code {
 		return codes.Unauthenticated
 	case domain.ErrKindPermissionDenied:
 		return codes.PermissionDenied
+	case domain.ErrKindRateLimited:
+		return codes.ResourceExhausted
 	default:
 		return codes.Internal
 	}
@@ -41,6 +43,17 @@ func errorInterceptor(log *slog.Logger) grpc.UnaryServerInterceptor {
 			return resp, nil
 		}
 		return nil, toStatusError(ctx, err, info.FullMethod, log)
+	}
+}
+
+// errorStreamInterceptor is errorInterceptor for streaming RPCs.
+func errorStreamInterceptor(log *slog.Logger) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, next grpc.StreamHandler) error {
+		err := next(srv, ss)
+		if err == nil {
+			return nil
+		}
+		return toStatusError(ss.Context(), err, info.FullMethod, log)
 	}
 }
 

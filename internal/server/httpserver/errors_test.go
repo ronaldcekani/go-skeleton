@@ -30,6 +30,7 @@ func TestWriteError(t *testing.T) {
 		"conflict":          {domain.Conflict("name already taken"), http.StatusConflict, "conflict", "name already taken"},
 		"unauthenticated":   {domain.NewError(domain.ErrKindUnauthenticated, "sign in"), http.StatusUnauthorized, "unauthenticated", "sign in"},
 		"permission denied": {domain.NewError(domain.ErrKindPermissionDenied, "not yours"), http.StatusForbidden, "permission_denied", "not yours"},
+		"rate limited":      {domain.NewError(domain.ErrKindRateLimited, "rate limit exceeded"), http.StatusTooManyRequests, "rate_limited", "rate limit exceeded"},
 		"unknown error":     {errors.New("pq: password is hunter2"), http.StatusInternalServerError, "internal", "internal server error"},
 		"deadline exceeded": {context.DeadlineExceeded, http.StatusGatewayTimeout, "deadline_exceeded", "request timed out"},
 		"client went away":  {context.Canceled, statusClientClosedRequest, "canceled", "request canceled"},
