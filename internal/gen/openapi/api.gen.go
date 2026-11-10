@@ -51,6 +51,15 @@ type ItemList struct {
 	Total int64  `json:"total"`
 }
 
+// InternalError defines model for InternalError.
+type InternalError = Error
+
+// TooManyRequests defines model for TooManyRequests.
+type TooManyRequests = Error
+
+// Unauthorized defines model for Unauthorized.
+type Unauthorized = Error
+
 // ListItemsParams defines parameters for ListItems.
 type ListItemsParams struct {
 	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
@@ -325,6 +334,19 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	return m
 }
 
+type InternalErrorJSONResponse Error
+
+type TooManyRequestsResponseHeaders struct {
+	RetryAfter *int
+}
+type TooManyRequestsJSONResponse struct {
+	Body Error
+
+	Headers TooManyRequestsResponseHeaders
+}
+
+type UnauthorizedJSONResponse Error
+
 type ListItemsRequestObject struct {
 	Params ListItemsParams
 }
@@ -361,7 +383,38 @@ func (response ListItems400JSONResponse) VisitListItemsResponse(w http.ResponseW
 	return err
 }
 
-type ListItems500JSONResponse Error
+type ListItems401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListItems401JSONResponse) VisitListItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListItems429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListItems429JSONResponse) VisitListItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListItems500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response ListItems500JSONResponse) VisitListItemsResponse(w http.ResponseWriter) error {
 
@@ -411,7 +464,38 @@ func (response CreateItem400JSONResponse) VisitCreateItemResponse(w http.Respons
 	return err
 }
 
-type CreateItem500JSONResponse Error
+type CreateItem401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateItem401JSONResponse) VisitCreateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateItem429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateItem429JSONResponse) VisitCreateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateItem500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response CreateItem500JSONResponse) VisitCreateItemResponse(w http.ResponseWriter) error {
 
@@ -441,6 +525,20 @@ func (response DeleteItem204Response) VisitDeleteItemResponse(w http.ResponseWri
 	return nil
 }
 
+type DeleteItem401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteItem401JSONResponse) VisitDeleteItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteItem404JSONResponse Error
 
 func (response DeleteItem404JSONResponse) VisitDeleteItemResponse(w http.ResponseWriter) error {
@@ -455,7 +553,24 @@ func (response DeleteItem404JSONResponse) VisitDeleteItemResponse(w http.Respons
 	return err
 }
 
-type DeleteItem500JSONResponse Error
+type DeleteItem429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DeleteItem429JSONResponse) VisitDeleteItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteItem500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response DeleteItem500JSONResponse) VisitDeleteItemResponse(w http.ResponseWriter) error {
 
@@ -491,6 +606,20 @@ func (response GetItem200JSONResponse) VisitGetItemResponse(w http.ResponseWrite
 	return err
 }
 
+type GetItem401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetItem401JSONResponse) VisitGetItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetItem404JSONResponse Error
 
 func (response GetItem404JSONResponse) VisitGetItemResponse(w http.ResponseWriter) error {
@@ -505,7 +634,24 @@ func (response GetItem404JSONResponse) VisitGetItemResponse(w http.ResponseWrite
 	return err
 }
 
-type GetItem500JSONResponse Error
+type GetItem429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetItem429JSONResponse) VisitGetItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetItem500JSONResponse struct{ InternalErrorJSONResponse }
 
 func (response GetItem500JSONResponse) VisitGetItemResponse(w http.ResponseWriter) error {
 
@@ -688,19 +834,22 @@ func (sh *strictHandler) GetItem(w http.ResponseWriter, r *http.Request, id open
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"5FZdT+s4EP0r1uw+ZpsUuiuUN3ZBqBIPCHhD1co0k9bc+AN7UlFV+e9XttOmIQF0JYSuxFucTOZ4zpwz",
-	"9g6WWhqtUJGDfAduuUbJw+N/FjnhnFDe4nONjvxLY7VBSwJDSIFuaYUhoZVfSv5yjWpFa8hPsixLgLYG",
-	"IQdHVqgVNAkoLnEYmYAUar+eDn5rErD4XAuLBeQPMcfiEKUfn3BJPvmltdoON7nURcAcbEaic3w19u0V",
-	"YsjQxY9he5pGoAOFxf88cFdqK/0TFJzwLxLSJx3s6hWng++i6OWqa1HAO0wPPtSm+MU9vWIj4IX0/c0m",
-	"x+X2cN4i7FqMiUoQyv7DnxZLyOGPtNNq2go1DcQ3BwBuLd+GtSZe9SoUiv6ZddUJRbhCOywvoO4TDLfu",
-	"44Uq9UD/cPnCpamQ3V7e3bPzmzlzaDdYsMctozUy9wMrJK0YN6YSS+7/mnggQZUHuNLsbh9yfjOHBDZo",
-	"XUw9nWSTzJelDSpuBORwOskmp5CA4bQOLKWbaXqgbIWBWc9rAJoXkIPne96WZ7jlEgmtg/xhB8KjPNdo",
-	"t/vm5lAJKXwnI9Wx3pLXFXnTJt7DQtYS8mnr4HY1xvA4gC5Lh28gHKfMRlIufNec0cpF1ZxkWTS7IlSh",
-	"9iOa0ycX3dQBfaSpoM3Q7H6Tz5nhK2S6ZJHrJoHZJ0LHGTaCO1cbXomC2XYWNwn8/TW4hFbximEbkYCr",
-	"peR22wqKHQzDV64z0KJJwGg3osLuXIHoPHT0ry62n1bL8OBq+iYnW2Mz0M/0U/UzxuX9Glk7IwNr31s8",
-	"sU2Mq8jFUEBN0s20dCeKJg6ICgmHqroI7w+q6nV2NpzVPpDFXEVsw+wL6PCgShMrda2K36MLkbd3upCM",
-	"nyVXSONkZ19io84+37RvV0j7pvkLxvxifAKPnPL+wtCdweE21x+Nx+fxB/fMJrg03HNaiNpWkMOayORp",
-	"Wuklr9baUX6WnWXQLJqfAQAA//8=",
+	"7FZdb9s2FP0rxN0e2UhOs6HTW7ZmgYcWKJIMewiMgRGvbLYSqZBXWTxD/30gKVuWpTjbkGwvfRNF8pzL",
+	"cz83kJuqNho1Ocg2YNHVRjsMi7kmtFqUF9Ya63/kRhNq8p+irkuVC1JGJ5+d0f6fy1dYCf/1rcUCMvgm",
+	"6dGTuOuSiNa2LQeJLreq9iCQ7egYxhMcboz5KPT6Cu8bdNHA1zXhShCyUlWKGD7miBIlcFihkGgD/RWS",
+	"Xb85LwiDIMPb15gbLR0jw/4QitgdFsYis/6O0kvge+bRukbIQGnCJQZbWg6/atHQylj1J8rXf+xH5ZzS",
+	"S86UfhClksxYho+1siiZyHN0/iVfUIO/2qF5sp8sCsI5YdU5xv+sranRkoqRMyDaQCUeP6Be0gqy0zRN",
+	"+fb1jqzXpeWgRYXjkxwqpbfr2ehay8HifeMNhuw2Yix2p8zdZ8zJg+/id2hkbiTuuaI3pkLnxHJq74Ax",
+	"IPTnp7i9TBPUQUL5uwjaFcZW/gukIHxDqvKgI6sONB3tKznAahol4YjSo42mlv/QpgM1Al+AHxrL9587",
+	"4HlKsA9qKqgUYTX8OBb2Qfh2RyCsFeuwNiTKwQuVpu/P+tf1KXnwvMC6BRib7pME88YqWl97G6LRdygs",
+	"2vPGR/B29fOW+ZffbrZFwSPF3d6SFVEdE1fpwozrzcWjqOoS2dXF9Q07/zRnDu0DSna3ZrRC5r5giWQ0",
+	"26sdJx5dUenhLw273h45/zQHDg9oXYSenaQnqZfL1KhFrSCDtyfpyVvgUAtahaclD7Nk54olBo95fwWi",
+	"uYQMvB/nnWy1sKJCCnX0dgPKs9w3aNfboMkgFN5BlZRYiKYkXwy4rw2qairIZl1l6FZTnpsmMEXh8AmG",
+	"fch0AnLBh83xNE1frETvYn6iSp+zWiyRmYJFrVsOZy9IfaQbx6ZguxofeGdPwe2kSQY9zF86/eH5S4eN",
+	"vuXwXXzk8XvDCSWkYFNVwq674GO7pBVL1yfxouVQGzcRsX1vg5j96OhHI9cvpve4ebbDQkO2wXYUa7MX",
+	"jbUpf9+skHV1Oqj2NdD+bqBFlzKho27jYGt5XyuTjZJtLDwlEo4j8H34v4vAQRScjXuAP8gilvz30kXk",
+	"V/azt1QbYoVp9P/rsajxEY/x6X52iTTtmPQ/Sc8+Lb/6+FkfXyJtHewHovn76S4wMZX4AaefGcJUOyzP",
+	"+/PDM/N2u9ifCwPH/kR4u/BzRRjbOgsaW3aTX5YkpclFuTKOsnfpuxTaRftXAAAA//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

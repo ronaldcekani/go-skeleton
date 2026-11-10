@@ -28,6 +28,8 @@ func statusFromKind(kind domain.ErrKind) int {
 		return http.StatusUnauthorized
 	case domain.ErrKindPermissionDenied:
 		return http.StatusForbidden
+	case domain.ErrKindRateLimited:
+		return http.StatusTooManyRequests
 	default:
 		return http.StatusInternalServerError
 	}

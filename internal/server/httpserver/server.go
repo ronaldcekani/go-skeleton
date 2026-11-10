@@ -8,16 +8,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
+	"github.com/getkin/kin-openapi/openapi3filter"
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/example/go-skeleton/internal/domain"
 	"github.com/example/go-skeleton/internal/gen/openapi"
+	"github.com/example/go-skeleton/internal/server/policy"
 )
 
 type Options struct {
@@ -33,13 +37,25 @@ type Options struct {
 type ReadinessCheck func(ctx context.Context) error
 
 // New builds the HTTP server. The caller owns its lifecycle (Serve/Shutdown).
-func New(opts Options, items ItemService, ready ReadinessCheck, log *slog.Logger) (*http.Server, error) {
+func New(opts Options, items ItemService, ready ReadinessCheck, enforcer *policy.Enforcer, policies policy.Table, log *slog.Logger) (*http.Server, error) {
 	spec, err := openapi.GetSpec()
 	if err != nil {
 		return nil, fmt.Errorf("load embedded openapi spec: %w", err)
 	}
 	// The spec's server URLs are documentation; do not validate Host against them.
 	spec.Servers = nil
+
+	// Route pattern ("GET /v1/items/{id}") -> operationId, to find the
+	// policy of the matched route.
+	operations := map[string]string{}
+	for path, item := range spec.Paths.Map() {
+		for method, op := range item.Operations() {
+			operations[method+" "+path] = op.OperationID
+		}
+	}
+	if err := policies.CheckHTTP(slices.Collect(maps.Values(operations))); err != nil {
+		return nil, fmt.Errorf("endpoint rules: %w", err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -67,13 +83,17 @@ func New(opts Options, items ItemService, ready ReadinessCheck, log *slog.Logger
 		ErrorHandler: func(w http.ResponseWriter, message string, statusCode int) {
 			writeErrorBody(w, statusCode, domain.ErrKindInvalidInput.String(), message)
 		},
+		// Tokens are verified by the authorize middleware, which runs first.
+		Options: openapi3filter.Options{AuthenticationFunc: openapi3filter.NoopAuthenticationFunc},
 	})
 
 	// Registers the generated routes on mux. The middlewares run per matched
-	// operation, after routing; the last one listed runs first.
+	// operation, after routing; the last one listed runs first, so a request
+	// is authenticated and rate limited before its body is read.
+	authz := authorize(enforcer, policies, operations, writeError(log))
 	openapi.HandlerWithOptions(strict, openapi.StdHTTPServerOptions{
 		BaseRouter:       mux,
-		Middlewares:      []openapi.MiddlewareFunc{validator, routeTag},
+		Middlewares:      []openapi.MiddlewareFunc{validator, authz, routeTag},
 		ErrorHandlerFunc: writeInvalidRequest,
 	})
 

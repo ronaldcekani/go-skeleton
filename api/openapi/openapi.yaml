@@ -5,6 +5,10 @@ info:
   description: Example REST API served by the skeleton application.
 servers:
   - url: http://localhost:8080
+# Every operation takes a Keycloak access token. Which operations are public
+# and which are rate limited is decided by endpoints.rules in the app config.
+security:
+  - bearerAuth: []
 paths:
   /v1/items:
     get:
@@ -29,11 +33,9 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-        "500":
-          description: Internal error
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/InternalError" }
     post:
       operationId: createItem
       summary: Create an item
@@ -54,11 +56,9 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-        "500":
-          description: Internal error
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/InternalError" }
   /v1/items/{id}:
     parameters:
       - name: id
@@ -80,11 +80,9 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-        "500":
-          description: Internal error
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/InternalError" }
     delete:
       operationId: deleteItem
       summary: Delete an item
@@ -97,12 +95,35 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-        "500":
-          description: Internal error
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/InternalError" }
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Unauthorized:
+      description: Missing, invalid or expired access token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    InternalError:
+      description: Internal error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
   schemas:
     Item:
       type: object

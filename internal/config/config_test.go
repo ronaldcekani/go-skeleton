@@ -66,3 +66,57 @@ func TestLoadRejectsInvalid(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadEndpointRules(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	yaml := `
+endpoints:
+  rules:
+    - name: read
+      http: [listItems]
+      grpc: [item.v1.ItemService/ListItems]
+      public: true
+    - name: write
+      http: [createItem]
+      rate_limit: { requests: 20, period: 1m, burst: 5 }
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load([]string{"--config", path})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	rules := cfg.Endpoints.Rules
+	if len(rules) != 2 {
+		t.Fatalf("rules = %+v, want 2", rules)
+	}
+	if !rules[0].Public || rules[0].RateLimit != nil || rules[0].GRPC[0] != "item.v1.ItemService/ListItems" {
+		t.Errorf("read rule = %+v", rules[0])
+	}
+	if l := rules[1].RateLimit; l == nil || l.Requests != 20 || l.Period != time.Minute || l.Burst != 5 {
+		t.Errorf("write rule limit = %+v", rules[1].RateLimit)
+	}
+}
+
+func TestLoadRejectsBadEndpointRules(t *testing.T) {
+	for name, rules := range map[string]string{
+		"no name":             "- http: [listItems]",
+		"duplicate name":      "- {name: a, http: [x]}\n    - {name: a, http: [y]}",
+		"no endpoints":        "- name: a",
+		"public with a limit": "- {name: a, http: [x], public: true, rate_limit: {requests: 1, period: 1s}}",
+		"zero requests":       "- {name: a, http: [x], rate_limit: {requests: 0, period: 1s}}",
+		"no period":           "- {name: a, http: [x], rate_limit: {requests: 5}}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			yaml := "endpoints:\n  rules:\n    " + rules + "\n"
+			if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load([]string{"--config", path}); err == nil {
+				t.Error("Load succeeded, want error")
+			}
+		})
+	}
+}

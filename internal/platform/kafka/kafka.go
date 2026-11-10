@@ -118,11 +118,15 @@ func NewConsumer(ctx context.Context, opts Options, group string, topics []strin
 	return &Consumer{client: client, tracer: tracer, handler: handler, log: log}, nil
 }
 
+// Close leaves the consumer group, so partitions are reassigned immediately,
+// and closes the client. Call it after Run has returned.
+func (c *Consumer) Close() {
+	c.client.Close()
+}
+
 // Run polls until ctx is cancelled. The batch being processed when ctx is
-// cancelled is finished and committed before Run returns, and the client then
-// leaves the group so partitions are reassigned immediately.
+// cancelled is finished and committed before Run returns.
 func (c *Consumer) Run(ctx context.Context) error {
-	defer c.client.Close() // leaves the consumer group
 	for {
 		fetches := c.client.PollFetches(ctx)
 		if fetches.IsClientClosed() || ctx.Err() != nil {
