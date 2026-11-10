@@ -16,6 +16,7 @@ import (
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
+	"github.com/example/go-skeleton/internal/domain"
 	"github.com/example/go-skeleton/internal/gen/openapi"
 )
 
@@ -56,31 +57,24 @@ func New(opts Options, items ItemService, ready ReadinessCheck, log *slog.Logger
 	})
 
 	strict := openapi.NewStrictHandlerWithOptions(&handler{items: items}, nil, openapi.StrictHTTPServerOptions{
-		RequestErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
-			writeError(w, http.StatusBadRequest, "bad_request", err.Error())
-		},
-		// Errors returned by handlers that were not mapped to a response in
-		// the spec end up here.
-		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			log.ErrorContext(r.Context(), "request failed", slog.Any("error", err))
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
-		},
+		RequestErrorHandlerFunc:  writeInvalidRequest,
+		ResponseErrorHandlerFunc: writeError(log),
 	})
 
+	// Rejects requests that do not match the OpenAPI spec before they reach
+	// a handler.
 	validator := nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &nethttpmiddleware.Options{
 		ErrorHandler: func(w http.ResponseWriter, message string, statusCode int) {
-			writeError(w, statusCode, "bad_request", message)
+			writeErrorBody(w, statusCode, domain.ErrKindInvalidInput.String(), message)
 		},
 	})
 
 	// Registers the generated routes on mux. The middlewares run per matched
 	// operation, after routing; the last one listed runs first.
 	openapi.HandlerWithOptions(strict, openapi.StdHTTPServerOptions{
-		BaseRouter:  mux,
-		Middlewares: []openapi.MiddlewareFunc{validator, routeTag},
-		ErrorHandlerFunc: func(w http.ResponseWriter, _ *http.Request, err error) {
-			writeError(w, http.StatusBadRequest, "bad_request", err.Error())
-		},
+		BaseRouter:       mux,
+		Middlewares:      []openapi.MiddlewareFunc{validator, routeTag},
+		ErrorHandlerFunc: writeInvalidRequest,
 	})
 
 	var h http.Handler = mux
@@ -109,8 +103,4 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
-}
-
-func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, openapi.Error{Code: code, Message: message})
 }

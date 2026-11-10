@@ -38,8 +38,12 @@ func New(opts Options, items ItemService, log *slog.Logger) *Server {
 		grpc.StatsHandler(otelgrpc.NewServerHandler(
 			otelgrpc.WithFilter(filters.Not(filters.HealthCheck())),
 		)),
+		// Outermost first: the request log sees the final status, the
+		// error interceptor translates what handlers return, and recovery
+		// sits next to the handler.
 		grpc.ChainUnaryInterceptor(
 			loggingInterceptor(log),
+			errorInterceptor(log),
 			recoveryInterceptor(log),
 		),
 	)
@@ -66,17 +70,15 @@ func loggingInterceptor(log *slog.Logger) grpc.UnaryServerInterceptor {
 
 		code := status.Code(err)
 		level := slog.LevelInfo
-		attrs := []slog.Attr{
-			slog.String("method", info.FullMethod),
-			slog.String("code", code.String()),
-			slog.Duration("duration", time.Since(start)),
-		}
 		switch code {
 		case codes.Internal, codes.Unknown, codes.DataLoss, codes.Unavailable, codes.DeadlineExceeded:
 			level = slog.LevelError
-			attrs = append(attrs, slog.Any("error", err))
 		}
-		log.LogAttrs(ctx, level, "grpc request", attrs...)
+		log.LogAttrs(ctx, level, "grpc request",
+			slog.String("method", info.FullMethod),
+			slog.String("code", code.String()),
+			slog.Duration("duration", time.Since(start)),
+		)
 		return resp, err
 	}
 }

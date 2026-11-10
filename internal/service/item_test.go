@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -26,7 +27,7 @@ func (f *fakeStore) GetByID(_ context.Context, id uuid.UUID) (domain.Item, error
 	f.gets++
 	item, ok := f.items[id]
 	if !ok {
-		return domain.Item{}, domain.ErrNotFound
+		return domain.Item{}, domain.NotFound("item not found")
 	}
 	return item, nil
 }
@@ -44,7 +45,7 @@ func (f *fakeStore) List(_ context.Context, limit, _ int) ([]domain.Item, int64,
 
 func (f *fakeStore) Delete(_ context.Context, id uuid.UUID) error {
 	if _, ok := f.items[id]; !ok {
-		return domain.ErrNotFound
+		return domain.NotFound("item not found")
 	}
 	delete(f.items, id)
 	return nil
@@ -104,7 +105,7 @@ func newTestService(t *testing.T) (*ItemService, *fakeStore, *fakeCache, *fakePu
 func TestCreate(t *testing.T) {
 	svc, store, _, pub := newTestService(t)
 
-	item, err := svc.Create(t.Context(), "  widget  ", "a thing")
+	item, err := svc.Create(t.Context(), domain.CreateItemInput{Name: "  widget  ", Description: "a thing"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -122,11 +123,11 @@ func TestCreate(t *testing.T) {
 func TestCreateRejectsInvalidInput(t *testing.T) {
 	svc, store, _, pub := newTestService(t)
 
-	for name, input := range map[string]string{"empty": "", "blank": "   ", "too long": string(make([]byte, maxNameLen+1))} {
+	for name, input := range map[string]string{"empty": "", "blank": "   ", "too long": strings.Repeat("n", domain.MaxItemNameLen+1)} {
 		t.Run(name, func(t *testing.T) {
-			_, err := svc.Create(t.Context(), input, "")
-			if _, ok := errors.AsType[*domain.ValidationError](err); !ok {
-				t.Fatalf("err = %v, want *domain.ValidationError", err)
+			_, err := svc.Create(t.Context(), domain.CreateItemInput{Name: input})
+			if !domain.IsKind(err, domain.ErrKindInvalidInput) {
+				t.Fatalf("err = %v, want invalid input", err)
 			}
 		})
 	}
@@ -139,7 +140,7 @@ func TestCreateSucceedsWhenPublishFails(t *testing.T) {
 	svc, store, _, pub := newTestService(t)
 	pub.err = errors.New("broker down")
 
-	item, err := svc.Create(t.Context(), "widget", "")
+	item, err := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget", Description: ""})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -150,7 +151,7 @@ func TestCreateSucceedsWhenPublishFails(t *testing.T) {
 
 func TestGetReadsThroughCache(t *testing.T) {
 	svc, store, cache, _ := newTestService(t)
-	item, err := svc.Create(t.Context(), "widget", "")
+	item, err := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget", Description: ""})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -174,7 +175,7 @@ func TestGetReadsThroughCache(t *testing.T) {
 
 func TestGetFallsBackToStoreWhenCacheFails(t *testing.T) {
 	svc, _, cache, _ := newTestService(t)
-	item, err := svc.Create(t.Context(), "widget", "")
+	item, err := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget", Description: ""})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -191,14 +192,14 @@ func TestGetFallsBackToStoreWhenCacheFails(t *testing.T) {
 
 func TestGetNotFound(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
-	if _, err := svc.Get(t.Context(), uuid.New()); !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("err = %v, want ErrNotFound", err)
+	if _, err := svc.Get(t.Context(), uuid.New()); !domain.IsKind(err, domain.ErrKindNotFound) {
+		t.Errorf("err = %v, want not found", err)
 	}
 }
 
 func TestDeleteInvalidatesCache(t *testing.T) {
 	svc, _, cache, _ := newTestService(t)
-	item, _ := svc.Create(t.Context(), "widget", "")
+	item, _ := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget", Description: ""})
 	if _, err := svc.Get(t.Context(), item.ID); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -209,20 +210,20 @@ func TestDeleteInvalidatesCache(t *testing.T) {
 	if _, ok := cache.items[item.ID]; ok {
 		t.Error("cache entry survived delete")
 	}
-	if err := svc.Delete(t.Context(), item.ID); !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("second delete err = %v, want ErrNotFound", err)
+	if err := svc.Delete(t.Context(), item.ID); !domain.IsKind(err, domain.ErrKindNotFound) {
+		t.Errorf("second delete err = %v, want not found", err)
 	}
 }
 
 func TestListValidatesPaging(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
-	for _, tc := range []struct{ limit, offset int }{{-1, 0}, {MaxPageSize + 1, 0}, {10, -1}} {
-		_, _, err := svc.List(t.Context(), tc.limit, tc.offset)
-		if _, ok := errors.AsType[*domain.ValidationError](err); !ok {
-			t.Errorf("List(%d, %d) err = %v, want *domain.ValidationError", tc.limit, tc.offset, err)
+	for _, tc := range []struct{ limit, offset int }{{-1, 0}, {domain.MaxPageSize + 1, 0}, {10, -1}} {
+		_, _, err := svc.List(t.Context(), domain.ListItemsInput{Limit: tc.limit, Offset: tc.offset})
+		if !domain.IsKind(err, domain.ErrKindInvalidInput) {
+			t.Errorf("List(%d, %d) err = %v, want invalid input", tc.limit, tc.offset, err)
 		}
 	}
-	if _, _, err := svc.List(t.Context(), 0, 0); err != nil {
+	if _, _, err := svc.List(t.Context(), domain.ListItemsInput{}); err != nil {
 		t.Errorf("List with default limit: %v", err)
 	}
 }

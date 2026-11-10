@@ -21,13 +21,6 @@ import (
 
 const instrumentationName = "github.com/example/go-skeleton/internal/service"
 
-const (
-	DefaultPageSize = 20
-	MaxPageSize     = 100
-	maxNameLen      = 200
-	maxDescLen      = 2000
-)
-
 type ItemStore interface {
 	Create(ctx context.Context, item domain.Item) (domain.Item, error)
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Item, error)
@@ -79,25 +72,20 @@ func NewItemService(store ItemStore, cache ItemCache, publisher EventPublisher, 
 	}, nil
 }
 
-func (s *ItemService) Create(ctx context.Context, name, description string) (_ domain.Item, err error) {
+func (s *ItemService) Create(ctx context.Context, in domain.CreateItemInput) (_ domain.Item, err error) {
 	ctx, span := s.tracer.Start(ctx, "ItemService.Create")
 	defer func() { endSpan(span, err) }()
 
-	name = strings.TrimSpace(name)
-	switch {
-	case name == "":
-		return domain.Item{}, &domain.ValidationError{Message: "name is required"}
-	case len(name) > maxNameLen:
-		return domain.Item{}, &domain.ValidationError{Message: fmt.Sprintf("name must be at most %d characters", maxNameLen)}
-	case len(description) > maxDescLen:
-		return domain.Item{}, &domain.ValidationError{Message: fmt.Sprintf("description must be at most %d characters", maxDescLen)}
+	in.Name = strings.TrimSpace(in.Name)
+	if err := in.Validate(); err != nil {
+		return domain.Item{}, err
 	}
 
 	id, err := uuid.NewV7()
 	if err != nil {
 		return domain.Item{}, fmt.Errorf("generate item id: %w", err)
 	}
-	item, err := s.store.Create(ctx, domain.Item{ID: id, Name: name, Description: description})
+	item, err := s.store.Create(ctx, domain.Item{ID: id, Name: in.Name, Description: in.Description})
 	if err != nil {
 		return domain.Item{}, err
 	}
@@ -141,21 +129,18 @@ func (s *ItemService) Get(ctx context.Context, id uuid.UUID) (_ domain.Item, err
 	return item, nil
 }
 
-// List returns a page of items. A limit of zero means DefaultPageSize.
-func (s *ItemService) List(ctx context.Context, limit, offset int) (_ []domain.Item, _ int64, err error) {
+// List returns one page of items and the total number of items.
+func (s *ItemService) List(ctx context.Context, in domain.ListItemsInput) (_ []domain.Item, _ int64, err error) {
 	ctx, span := s.tracer.Start(ctx, "ItemService.List")
 	defer func() { endSpan(span, err) }()
 
-	if limit == 0 {
-		limit = DefaultPageSize
+	if err := in.Validate(); err != nil {
+		return nil, 0, err
 	}
-	switch {
-	case limit < 0 || limit > MaxPageSize:
-		return nil, 0, &domain.ValidationError{Message: fmt.Sprintf("limit must be between 1 and %d", MaxPageSize)}
-	case offset < 0:
-		return nil, 0, &domain.ValidationError{Message: "offset must not be negative"}
+	if in.Limit == 0 {
+		in.Limit = domain.DefaultPageSize
 	}
-	return s.store.List(ctx, limit, offset)
+	return s.store.List(ctx, in.Limit, in.Offset)
 }
 
 func (s *ItemService) Delete(ctx context.Context, id uuid.UUID) (err error) {
