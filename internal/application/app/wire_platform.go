@@ -20,6 +20,7 @@ import (
 // disabled in the config.
 type platform struct {
 	db            *sqlx.DB
+	tx            *postgres.Transactor // give it to services that write through several repositories
 	redis         *goredis.Client
 	producer      *kafka.Producer     // nil: Kafka disabled
 	authenticator *auth.Authenticator // nil: auth disabled
@@ -57,6 +58,7 @@ func wirePlatform(ctx context.Context, cfg config.Config, log *slog.Logger, clea
 		return nil, err
 	}
 	cleanup.push("postgres", closeWithErr(p.db.Close))
+	p.tx = postgres.NewTransactor(p.db)
 
 	p.redis, err = redis.Open(ctx, redis.Options{
 		Addr:     cfg.Redis.Addr,
