@@ -12,9 +12,12 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"github.com/example/go-skeleton/internal/domain"
+	"github.com/example/go-skeleton/internal/platform/postgres"
 )
 
-// ItemRepository persists items in Postgres.
+// ItemRepository persists items in Postgres. Every query goes through
+// postgres.Conn, so calls made inside Transactor.WithinTx join that
+// transaction.
 type ItemRepository struct {
 	db *sqlx.DB
 }
@@ -32,7 +35,7 @@ func (r *ItemRepository) Create(ctx context.Context, item domain.Item) (domain.I
 		RETURNING ` + itemColumns
 
 	var out domain.Item
-	if err := r.db.GetContext(ctx, &out, q, item.ID, item.Name, item.Description); err != nil {
+	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &out, q, item.ID, item.Name, item.Description); err != nil {
 		return domain.Item{}, fmt.Errorf("insert item: %w", err)
 	}
 	return out, nil
@@ -42,7 +45,7 @@ func (r *ItemRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Item
 	const q = `SELECT ` + itemColumns + ` FROM items WHERE id = $1`
 
 	var out domain.Item
-	if err := r.db.GetContext(ctx, &out, q, id); err != nil {
+	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &out, q, id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Item{}, domain.NotFound("item not found")
 		}
@@ -60,18 +63,18 @@ func (r *ItemRepository) List(ctx context.Context, limit, offset int) ([]domain.
 		LIMIT $1 OFFSET $2`
 
 	items := make([]domain.Item, 0, limit)
-	if err := r.db.SelectContext(ctx, &items, q, limit, offset); err != nil {
+	if err := postgres.Conn(ctx, r.db).SelectContext(ctx, &items, q, limit, offset); err != nil {
 		return nil, 0, fmt.Errorf("select items: %w", err)
 	}
 	var total int64
-	if err := r.db.GetContext(ctx, &total, `SELECT count(*) FROM items`); err != nil {
+	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &total, `SELECT count(*) FROM items`); err != nil {
 		return nil, 0, fmt.Errorf("count items: %w", err)
 	}
 	return items, total, nil
 }
 
 func (r *ItemRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	res, err := r.db.ExecContext(ctx, `DELETE FROM items WHERE id = $1`, id)
+	res, err := postgres.Conn(ctx, r.db).ExecContext(ctx, `DELETE FROM items WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete item: %w", err)
 	}

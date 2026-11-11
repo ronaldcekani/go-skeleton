@@ -106,6 +106,55 @@ layer declares the interfaces it needs (`ItemStore`, `ItemCache`,
 `EventPublisher`), so it has no knowledge of HTTP, gRPC, SQL, Redis or Kafka
 and is unit-tested with fakes.
 
+## Transactions
+
+Repositories never use their pool directly: every query goes through
+`postgres.Conn(ctx, r.db)`, which returns the transaction carried by the
+context, or the pool when there is none. A service that has to write through
+several repositories atomically takes a transactor and wraps the calls:
+
+```go
+// internal/service: declared next to the other interfaces
+type Transactor interface {
+	WithinTx(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
+func (s *OrderService) Place(ctx context.Context, in domain.PlaceOrderInput) error {
+	err := s.tx.WithinTx(ctx, func(ctx context.Context) error {
+		if err := s.orders.Create(ctx, order); err != nil {
+			return err
+		}
+		return s.items.Reserve(ctx, order.ItemID) // any error rolls both back
+	})
+	if err != nil {
+		return err
+	}
+	// committed: now invalidate caches and publish events
+	return nil
+}
+```
+
+- Pass the `ctx` that `fn` receives to the repositories; a call made with the
+  outer context runs outside the transaction.
+- `fn` returning `nil` commits. An error, a panic or a cancelled context
+  rolls back.
+- Calls nest by joining: a service method that uses `WithinTx` can be called
+  from another one's `fn`, and the outermost call commits. There are no
+  savepoints, so an inner error has to be returned to undo anything.
+- Only Postgres takes part. Redis and Kafka calls inside `fn` are not undone
+  by a rollback, so make them after it returned.
+- `WithinTxOptions` sets the isolation level or read-only mode.
+
+The implementation is `*postgres.Transactor`, available in the wiring as
+`p.tx`; in service unit tests a fake that just calls `fn(ctx)` is enough.
+`internal/platform/postgres/tx_test.go` and
+`internal/repository/item_test.go` run against a real database and are
+skipped unless `TEST_POSTGRES_DSN` is set:
+
+```bash
+TEST_POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/skeleton?sslmode=disable' make test
+```
+
 ## Changing the API
 
 Edit `api/openapi/openapi.yaml` or the `.proto` files, then:
