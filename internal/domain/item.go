@@ -19,12 +19,15 @@ const (
 	MaxSearchQueryLen     = 200
 )
 
+// Item carries no db or json tags on purpose: the repository, the cache and
+// the event publisher each map it to a format of their own, so renaming a
+// field here cannot silently change a table mapping or a wire contract.
 type Item struct {
-	ID          uuid.UUID `db:"id" json:"id"`
-	Name        string    `db:"name" json:"name"`
-	Description string    `db:"description" json:"description"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	ID          uuid.UUID
+	Name        string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // CreateItemInput is what a caller provides to create an item.
@@ -100,12 +103,3 @@ func (in SearchItemsInput) Validate() error {
 	}
 	return ListItemsInput{Limit: in.Limit, Offset: in.Offset}.Validate()
 }
-
-// ItemCreatedEvent is published when an item has been created.
-type ItemCreatedEvent struct {
-	Type       string    `json:"type"`
-	OccurredAt time.Time `json:"occurred_at"`
-	Item       Item      `json:"item"`
-}
-
-const EventTypeItemCreated = "item.created"

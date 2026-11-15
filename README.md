@@ -158,10 +158,12 @@ The implementation is `*postgres.Transactor`, available in the wiring as
 `p.tx`; in service unit tests a fake that just calls `fn(ctx)` is enough.
 `internal/platform/postgres/tx_test.go` and
 `internal/repository/item_test.go` run against a real database and are
-skipped unless `TEST_POSTGRES_DSN` is set:
+skipped unless `TEST_POSTGRES_DSN` is set. The cache tests in
+`internal/repository/item_cache_test.go` need a real Redis in the same way
+(`TEST_REDIS_ADDR`):
 
 ```bash
-TEST_POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/skeleton?sslmode=disable' make test
+TEST_POSTGRES_DSN='postgres://postgres:postgres@localhost:5432/skeleton?sslmode=disable' TEST_REDIS_ADDR=localhost:6379 make test
 ```
 
 ## Changing the API
@@ -206,6 +208,10 @@ place:
 - HTTP: `writeError` in `internal/server/httpserver/errors.go`.
 - gRPC: `errorInterceptor` in `internal/server/grpcserver/errors.go`.
 
+Every HTTP error has the same JSON body, `{"code": "...", "message": "..."}`,
+including the ones no handler is involved in: an unknown path (404), a wrong
+method (405) and an oversized body (413).
+
 Any error that is not a `*domain.Error` (a failed query, a bug) is internal:
 it is logged with its cause and the client only sees "internal server error".
 To add a kind, add the constant and its name in `internal/domain/errors.go`
@@ -218,6 +224,11 @@ Callers send a Keycloak access token as `Authorization: Bearer <token>` (the
 and (optionally) audience are verified locally against the realm's signing
 keys, which are fetched at startup and refreshed in the background; no call
 to Keycloak is made per request. ID and refresh tokens are rejected.
+
+Set `auth.audience` in production. Without it a token issued to any client
+of the realm is accepted, and the app logs a warning at startup. Keycloak
+only puts this service in a token's `aud` claim if the client has an audience
+mapper for it.
 
 What each endpoint requires is configured once, for both transports:
 
@@ -338,8 +349,18 @@ it as a `component` from one of the `wire_*.go` files.
 
 ## Things to know
 
-- Events are published after the DB write commits, so a crash in between
-  loses the event. If that is not acceptable, add a transactional outbox.
+- Events are best effort. They are queued after the DB write commits and
+  delivered in the background, so a Kafka outage never slows a request down,
+  but an event is lost (and logged) if Kafka stays unreachable past the
+  delivery timeout or the process dies before it is sent. If that is not
+  acceptable, add a transactional outbox.
+- The domain entity is not the storage or wire format: the repository
+  (`itemRow`), the cache (`cachedItem`) and the event publisher (`itemEvent`)
+  each map `domain.Item` to a struct of their own. A test pins the event
+  JSON, because it is a contract with consumers.
+- Updating or deleting an item leaves a 10-second tombstone in the cache
+  instead of deleting the key, and readers never overwrite an existing key.
+  That keeps a read that raced with the write from caching the old version.
 - The Kafka consumer is at-least-once: handlers must be idempotent. A handler
   error is logged and the record is skipped; add retries or a dead-letter
   topic in `internal/platform/kafka` if you need them.

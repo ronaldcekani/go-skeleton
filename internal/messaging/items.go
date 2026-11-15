@@ -8,14 +8,35 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
 
 	"github.com/example/go-skeleton/internal/domain"
 )
 
 // RecordPublisher is the part of the Kafka producer this package needs.
+// Publish does not wait for the broker.
 type RecordPublisher interface {
-	Publish(ctx context.Context, topic string, key, value []byte) error
+	Publish(ctx context.Context, topic string, key, value []byte)
+}
+
+const eventTypeItemCreated = "item.created"
+
+// itemEvent and itemPayload are the JSON format of item events. They are a
+// contract with every consumer of the topic and deliberately separate from
+// domain.Item: change them only in ways consumers can cope with.
+type itemEvent struct {
+	Type       string      `json:"type"`
+	OccurredAt time.Time   `json:"occurred_at"`
+	Item       itemPayload `json:"item"`
+}
+
+type itemPayload struct {
+	ID          uuid.UUID `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // ItemPublisher publishes item events, keyed by item ID so events for one
@@ -23,22 +44,32 @@ type RecordPublisher interface {
 type ItemPublisher struct {
 	producer RecordPublisher
 	topic    string
+	now      func() time.Time
 }
 
 func NewItemPublisher(producer RecordPublisher, topic string) *ItemPublisher {
-	return &ItemPublisher{producer: producer, topic: topic}
+	return &ItemPublisher{producer: producer, topic: topic, now: time.Now}
 }
 
+// PublishItemCreated queues the event for delivery. It only fails if the
+// event cannot be encoded; delivery failures are logged by the producer.
 func (p *ItemPublisher) PublishItemCreated(ctx context.Context, item domain.Item) error {
-	payload, err := json.Marshal(domain.ItemCreatedEvent{
-		Type:       domain.EventTypeItemCreated,
-		OccurredAt: time.Now().UTC(),
-		Item:       item,
+	payload, err := json.Marshal(itemEvent{
+		Type:       eventTypeItemCreated,
+		OccurredAt: p.now().UTC(),
+		Item: itemPayload{
+			ID:          item.ID,
+			Name:        item.Name,
+			Description: item.Description,
+			CreatedAt:   item.CreatedAt,
+			UpdatedAt:   item.UpdatedAt,
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("encode item created event: %w", err)
 	}
-	return p.producer.Publish(ctx, p.topic, []byte(item.ID.String()), payload)
+	p.producer.Publish(ctx, p.topic, []byte(item.ID.String()), payload)
+	return nil
 }
 
 // NoopPublisher discards events. It is used when Kafka is disabled.
@@ -57,7 +88,7 @@ func NewItemEventHandler(log *slog.Logger) *ItemEventHandler {
 }
 
 func (h *ItemEventHandler) Handle(ctx context.Context, rec *kgo.Record) error {
-	var event domain.ItemCreatedEvent
+	var event itemEvent
 	if err := json.Unmarshal(rec.Value, &event); err != nil {
 		return fmt.Errorf("decode item event: %w", err)
 	}
