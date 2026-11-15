@@ -3,7 +3,6 @@ package domain
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 )
 
@@ -36,42 +35,5 @@ func TestKindOf(t *testing.T) {
 	}
 	if IsKind(nil, ErrKindInternal) {
 		t.Error("IsKind(nil, ...) must be false")
-	}
-}
-
-func TestCreateItemInputValidate(t *testing.T) {
-	for name, tc := range map[string]struct {
-		in    CreateItemInput
-		valid bool
-	}{
-		"ok":                   {CreateItemInput{Name: "widget", Description: "a thing"}, true},
-		"max lengths":          {CreateItemInput{Name: strings.Repeat("n", MaxItemNameLen), Description: strings.Repeat("d", MaxItemDescriptionLen)}, true},
-		"max length multibyte": {CreateItemInput{Name: strings.Repeat("й", MaxItemNameLen)}, true}, // characters, not bytes
-		"missing name":         {CreateItemInput{}, false},
-		"name too long":        {CreateItemInput{Name: strings.Repeat("n", MaxItemNameLen+1)}, false},
-		"description too long": {CreateItemInput{Name: "widget", Description: strings.Repeat("d", MaxItemDescriptionLen+1)}, false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			err := tc.in.Validate()
-			if tc.valid && err != nil {
-				t.Errorf("Validate = %v, want nil", err)
-			}
-			if !tc.valid && !IsKind(err, ErrKindInvalidInput) {
-				t.Errorf("Validate = %v, want invalid input", err)
-			}
-		})
-	}
-}
-
-func TestListItemsInputValidate(t *testing.T) {
-	for _, in := range []ListItemsInput{{}, {Limit: 1}, {Limit: MaxPageSize, Offset: 500}} {
-		if err := in.Validate(); err != nil {
-			t.Errorf("%+v: Validate = %v, want nil", in, err)
-		}
-	}
-	for _, in := range []ListItemsInput{{Limit: -1}, {Limit: MaxPageSize + 1}, {Limit: 10, Offset: -1}} {
-		if err := in.Validate(); !IsKind(err, ErrKindInvalidInput) {
-			t.Errorf("%+v: Validate = %v, want invalid input", in, err)
-		}
 	}
 }

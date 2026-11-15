@@ -1,4 +1,4 @@
-package repository_test
+package item_test
 
 import (
 	"os"
@@ -8,8 +8,7 @@ import (
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/example/go-skeleton/internal/domain"
-	"github.com/example/go-skeleton/internal/repository"
+	"github.com/example/go-skeleton/internal/feature/item"
 )
 
 // openTestRedis connects to a real Redis. It skips the test unless
@@ -28,33 +27,33 @@ func openTestRedis(t *testing.T) *goredis.Client {
 	return client
 }
 
-func TestItemCacheRoundTrip(t *testing.T) {
+func TestRedisCacheRoundTrip(t *testing.T) {
 	ctx := t.Context()
-	cache := repository.NewItemCache(openTestRedis(t), time.Minute)
+	cache := item.NewRedisCache(openTestRedis(t), time.Minute)
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	item := domain.Item{ID: uuid.New(), Name: "widget", Description: "a thing", CreatedAt: now, UpdatedAt: now}
+	want := item.Item{ID: uuid.New(), Name: "widget", Description: "a thing", CreatedAt: now, UpdatedAt: now}
 
-	if _, found, err := cache.Get(ctx, item.ID); err != nil || found {
+	if _, found, err := cache.Get(ctx, want.ID); err != nil || found {
 		t.Fatalf("Get before Set = found %v, err %v; want a miss", found, err)
 	}
-	if err := cache.Set(ctx, item); err != nil {
+	if err := cache.Set(ctx, want); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	got, found, err := cache.Get(ctx, item.ID)
+	got, found, err := cache.Get(ctx, want.ID)
 	if err != nil || !found {
 		t.Fatalf("Get after Set = found %v, err %v; want a hit", found, err)
 	}
-	if got != item {
-		t.Errorf("Get = %+v, want %+v", got, item)
+	if got != want {
+		t.Errorf("Get = %+v, want %+v", got, want)
 	}
 }
 
 // A reader that loaded the item before an update must not be able to cache
 // that old version after the update invalidated the cache.
-func TestItemCacheDropsStaleWriteAfterInvalidate(t *testing.T) {
+func TestRedisCacheDropsStaleWriteAfterInvalidate(t *testing.T) {
 	ctx := t.Context()
-	cache := repository.NewItemCache(openTestRedis(t), time.Minute)
-	stale := domain.Item{ID: uuid.New(), Name: "old name"}
+	cache := item.NewRedisCache(openTestRedis(t), time.Minute)
+	stale := item.Item{ID: uuid.New(), Name: "old name"}
 
 	if err := cache.Set(ctx, stale); err != nil {
 		t.Fatalf("Set: %v", err)

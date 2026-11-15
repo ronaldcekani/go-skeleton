@@ -2,7 +2,7 @@
 // the Kafka consumers until it is asked to stop.
 //
 // Build wires everything and Run drives the lifecycle. The wire_*.go files
-// each construct one layer, bottom-up: platform -> services -> servers and
+// each construct one layer, bottom-up: platform -> features -> servers and
 // consumers.
 package app
 
@@ -58,12 +58,12 @@ func Build(ctx context.Context, cfg config.Config, log *slog.Logger) (_ *App, er
 		return nil, fmt.Errorf("platform: %w", err)
 	}
 
-	services, err := wireServices(cfg, platform, log)
+	features, err := wireFeatures(cfg, platform, log)
 	if err != nil {
-		return nil, fmt.Errorf("services: %w", err)
+		return nil, fmt.Errorf("features: %w", err)
 	}
 
-	servers, err := wireServers(ctx, cfg, platform, services, a.ready.Load, log, cleanup)
+	servers, err := wireServers(ctx, cfg, platform, features, a.ready.Load, log, cleanup)
 	if err != nil {
 		return nil, fmt.Errorf("servers: %w", err)
 	}

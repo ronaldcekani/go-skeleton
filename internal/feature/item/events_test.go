@@ -1,4 +1,4 @@
-package messaging
+package item
 
 import (
 	"context"
@@ -9,8 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
-
-	"github.com/example/go-skeleton/internal/domain"
 )
 
 type fakeProducer struct {
@@ -26,12 +24,12 @@ func (f *fakeProducer) Publish(_ context.Context, topic string, key, value []byt
 // format changed: make sure that is intended before updating it.
 func TestItemCreatedWireFormat(t *testing.T) {
 	producer := &fakeProducer{}
-	p := NewItemPublisher(producer, "items.events")
+	p := NewKafkaPublisher(producer, "items.events")
 	p.now = func() time.Time { return time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC) }
 
 	id := uuid.MustParse("0195a5e0-0000-7000-8000-000000000001")
 	created := time.Date(2026, 1, 2, 3, 4, 0, 0, time.UTC)
-	err := p.PublishItemCreated(t.Context(), domain.Item{
+	err := p.PublishCreated(t.Context(), Item{
 		ID: id, Name: "widget", Description: "a thing", CreatedAt: created, UpdatedAt: created,
 	})
 	if err != nil {
@@ -49,7 +47,7 @@ func TestItemCreatedWireFormat(t *testing.T) {
 	}
 
 	// What is published can be consumed.
-	h := NewItemEventHandler(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := NewEventHandler(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err := h.Handle(t.Context(), &kgo.Record{Value: producer.value}); err != nil {
 		t.Errorf("Handle = %v", err)
 	}

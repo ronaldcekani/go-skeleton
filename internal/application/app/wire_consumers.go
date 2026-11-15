@@ -5,7 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/example/go-skeleton/internal/config"
-	"github.com/example/go-skeleton/internal/messaging"
+	"github.com/example/go-skeleton/internal/feature/item"
 	"github.com/example/go-skeleton/internal/platform/kafka"
 )
 
@@ -21,7 +21,7 @@ func wireConsumers(ctx context.Context, cfg config.Config, log *slog.Logger, cle
 		return &consumers{}, nil
 	}
 
-	handler := messaging.NewItemEventHandler(log)
+	handler := item.NewEventHandler(log)
 	consumer, err := kafka.NewConsumer(ctx,
 		kafka.Options{Brokers: cfg.Kafka.Brokers, ClientID: cfg.Kafka.ClientID},
 		cfg.Kafka.ConsumerGroup, []string{cfg.Kafka.ItemsTopic}, handler.Handle, log)

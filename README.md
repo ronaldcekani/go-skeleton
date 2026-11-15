@@ -1,8 +1,8 @@
 # go-skeleton
 
 A reusable Go service skeleton: one binary that serves **HTTP and gRPC on
-separate ports**, with both servers generated from API definitions, a layered
-architecture, Postgres, Redis, Kafka, structured logging, OpenTelemetry and
+separate ports**, with both servers generated from API definitions, one
+package per feature, Postgres, Redis, Kafka, structured logging, OpenTelemetry and
 graceful shutdown.
 
 | Concern       | Choice                                                                 |
@@ -91,44 +91,97 @@ cmd/app/                      main: config, logger, signals, mode dispatch
 config/config.yaml            local config
 migrations/                   goose SQL migrations (embedded)
 internal/
+  feature/                    one package per feature
+    item/
+      item.go                 the entity, its inputs and their validation
+      service.go              use cases + the interfaces they need
+      store.go                Postgres
+      cache.go                Redis
+      events.go               Kafka publisher and consumer
+      http.go, grpc.go        handlers: request -> input, result -> response
+  domain/                     what every feature shares: errors, Principal
+  server/httpserver/          HTTP server: middleware, error translation
+  server/grpcserver/          gRPC server: interceptors, error translation
+  server/policy/              per-endpoint auth + rate limit rules, shared by both
+  platform/                   logger, telemetry, postgres, redis, kafka, auth,
+                              ratelimit clients
   application/                one package per operation mode
     app/                      build.go (wiring), lifecycle.go (run + shutdown),
                               wire_*.go (one file per layer)
     migration/                applies the embedded migrations
   config/                     config struct, loading, validation
   gen/                        generated code — do not edit
-  server/httpserver/          server layer: HTTP handlers + middleware
-  server/grpcserver/          server layer: gRPC handlers + interceptors
-  server/policy/              per-endpoint auth + rate limit rules, shared by both
-  service/                    service layer: business logic
-  repository/                 data access layer: Postgres + Redis cache
-  messaging/                  domain events <-> Kafka records
-  domain/                     entities and errors shared by all layers
-  platform/                   logger, telemetry, postgres, redis, kafka, auth,
-                              ratelimit clients
+  architecture/               test that enforces the dependency rules below
 deploy/keycloak/              realm imported by the local Keycloak
 tools/                        separate Go module pinning the code generators
 ```
 
-Dependencies point inwards: `server → service → repository`. The service
-layer declares the interfaces it needs (`ItemStore`, `ItemCache`,
-`EventPublisher`), so it has no knowledge of HTTP, gRPC, SQL, Redis or Kafka
-and is unit-tested with fakes.
+## Features
+
+Everything about one feature lives in one package, `internal/feature/<name>`,
+and the types in it are the feature's own:
+
+- **The entity and the rules come first.** `item.Item` has no `db` or `json`
+  tags. The store (`itemRow`), the cache (`cachedItem`), the event publisher
+  (`itemEvent`) and the two handlers each map it to a struct of their own,
+  and those structs are unexported, so a schema or wire change stays inside
+  one file.
+- **The service declares what it needs.** `item.Service` depends on the
+  `Store`, `Cache` and `EventPublisher` interfaces declared next to it, so
+  it has no knowledge of SQL, Redis or Kafka and is unit-tested with fakes.
+- **The handlers only translate.** They turn a request into an input
+  (`item.CreateInput`), call the service and turn the result into a
+  response. Validation, defaults and trimming belong to the input and the
+  service, which is why HTTP and gRPC behave the same.
+- **Features do not import each other.** A feature that needs something from
+  another one declares an interface for it in its own terms, for example an
+  `order.Customer` with just the ID and group IDs instead of the user
+  feature's whole `User`, and `wire_features.go` passes in the
+  implementation.
+- **`internal/domain` is only the shared kernel.** A type goes there if
+  every feature would otherwise define it identically: the error kinds and
+  the authenticated `Principal`. Anything "sort of shared" gets a per-feature
+  view instead.
+
+The dependency rules are enforced by `internal/architecture`, which runs with
+`make test`:
+
+| Package       | May import                              |
+| ------------- | --------------------------------------- |
+| `domain`      | nothing in this module                  |
+| `platform`    | `domain`                                |
+| `feature/<x>` | `domain`, `platform`, `gen`             |
+| `server`      | `domain`, `platform`, `gen`             |
+| `application` | everything (it wires the rest together) |
+
+### Adding a feature
+
+1. Add the endpoints to `api/openapi/openapi.yaml`, a new
+   `api/proto/<name>/v1/<name>.proto`, and run `make generate`.
+2. Create `internal/feature/<name>` with the same files as `item`. Leave out
+   what the feature does not have (no cache, no events).
+3. Wire it in `internal/application/app`:
+   - `wire_features.go`: build the service.
+   - `wire_servers.go`: embed its `HTTPHandler` in `httpAPI` and add its
+     `GRPCServer.Register` to the list given to `grpcserver.New`. The build
+     fails until every operation of the spec is implemented.
+   - `wire_consumers.go`: add its Kafka consumers, if any.
+4. Add a migration and the endpoint rules in `config/config.yaml`.
 
 ## Transactions
 
-Repositories never use their pool directly: every query goes through
+Stores never use their pool directly: every query goes through
 `postgres.Conn(ctx, r.db)`, which returns the transaction carried by the
 context, or the pool when there is none. A service that has to write through
-several repositories atomically takes a transactor and wraps the calls:
+several stores atomically takes a transactor and wraps the calls:
 
 ```go
-// internal/service: declared next to the other interfaces
+// internal/feature/order/service.go: declared next to the other interfaces
 type Transactor interface {
 	WithinTx(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-func (s *OrderService) Place(ctx context.Context, in domain.PlaceOrderInput) error {
+func (s *Service) Place(ctx context.Context, in PlaceInput) error {
 	err := s.tx.WithinTx(ctx, func(ctx context.Context) error {
 		if err := s.orders.Create(ctx, order); err != nil {
 			return err
@@ -143,7 +196,7 @@ func (s *OrderService) Place(ctx context.Context, in domain.PlaceOrderInput) err
 }
 ```
 
-- Pass the `ctx` that `fn` receives to the repositories; a call made with the
+- Pass the `ctx` that `fn` receives to the stores; a call made with the
   outer context runs outside the transaction.
 - `fn` returning `nil` commits. An error, a panic or a cancelled context
   rolls back.
@@ -157,9 +210,9 @@ func (s *OrderService) Place(ctx context.Context, in domain.PlaceOrderInput) err
 The implementation is `*postgres.Transactor`, available in the wiring as
 `p.tx`; in service unit tests a fake that just calls `fn(ctx)` is enough.
 `internal/platform/postgres/tx_test.go` and
-`internal/repository/item_test.go` run against a real database and are
+`internal/feature/item/store_test.go` run against a real database and are
 skipped unless `TEST_POSTGRES_DSN` is set. The cache tests in
-`internal/repository/item_cache_test.go` need a real Redis in the same way
+`internal/feature/item/cache_test.go` need a real Redis in the same way
 (`TEST_REDIS_ADDR`):
 
 ```bash
@@ -174,14 +227,13 @@ Edit `api/openapi/openapi.yaml` or the `.proto` files, then:
 make generate
 ```
 
-The build then fails until the handlers in `internal/server/...` implement
+The build then fails until the handlers in `internal/feature/...` implement
 the new generated interface. Incoming HTTP requests are validated against the
 OpenAPI spec before they reach a handler.
 
 ## Inputs and errors
 
-Handlers build a domain input (`domain.CreateItemInput`) and pass it to the
-service. Inputs carry their own `Validate()` for rules that depend only on
+Handlers build an input (`item.CreateInput`) and pass it to the service. Inputs carry their own `Validate()` for rules that depend only on
 the input; rules that need other state stay in the service.
 
 Every layer returns plain Go errors. An error that should reach the client
@@ -302,7 +354,7 @@ live in `internal/config/config.go`.
   produced appear in one trace.
 - **Metrics**: HTTP and gRPC server metrics, DB pool stats, Redis and Kafka
   client metrics, Go runtime metrics, plus two example business counters in
-  `internal/service`.
+  `internal/feature/item/service.go`.
 - **Logs**: pass the request context (`log.InfoContext(ctx, ...)`) and the
   record carries `trace_id` and `span_id`. Logs are also exported over
   OTLP when `telemetry.logging_enabled` is set.
@@ -351,8 +403,9 @@ it as a `component` from one of the `wire_*.go` files.
 
 1. Rename the module: replace `github.com/example/go-skeleton` everywhere
    (`go.mod`, imports, `go_package` in the proto file), then `make generate`.
-2. Replace the example `Item` resource: API definitions, `domain`, `service`,
-   `repository`, `messaging`, the migration, and the two server handlers.
+2. Replace the example `item` feature: the API definitions, the migration,
+   `internal/feature/item` and its wiring in `internal/application/app`
+   (see [Adding a feature](#adding-a-feature)).
 
 ## Things to know
 
@@ -361,10 +414,8 @@ it as a `component` from one of the `wire_*.go` files.
   but an event is lost (and logged) if Kafka stays unreachable past the
   delivery timeout or the process dies before it is sent. If that is not
   acceptable, add a transactional outbox.
-- The domain entity is not the storage or wire format: the repository
-  (`itemRow`), the cache (`cachedItem`) and the event publisher (`itemEvent`)
-  each map `domain.Item` to a struct of their own. A test pins the event
-  JSON, because it is a contract with consumers.
+- A test pins the JSON of item events, because it is a contract with
+  consumers.
 - Updating or deleting an item leaves a 10-second tombstone in the cache
   instead of deleting the key, and readers never overwrite an existing key.
   That keeps a read that raced with the write from caching the old version.

@@ -20,7 +20,7 @@ import (
 // disabled in the config.
 type platform struct {
 	db            *sqlx.DB
-	tx            *postgres.Transactor // give it to services that write through several repositories
+	tx            *postgres.Transactor // give it to services that write through several stores
 	redis         *goredis.Client
 	producer      *kafka.Producer     // nil: Kafka disabled
 	authenticator *auth.Authenticator // nil: auth disabled

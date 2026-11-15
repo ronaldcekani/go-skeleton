@@ -1,4 +1,4 @@
-package repository
+package item
 
 import (
 	"context"
@@ -9,8 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	goredis "github.com/redis/go-redis/v9"
-
-	"github.com/example/go-skeleton/internal/domain"
 )
 
 const (
@@ -22,7 +20,7 @@ const (
 	tombstoneTTL = 10 * time.Second
 )
 
-// ItemCache caches items in Redis as JSON.
+// RedisCache caches items in Redis as JSON.
 //
 // A reader that misses the cache loads the item from Postgres and then caches
 // it. If the item changes between those two steps, the reader would cache
@@ -30,16 +28,16 @@ const (
 // Invalidate leaves a short-lived tombstone instead of deleting the key, and
 // Set never overwrites an existing key: the late write of the old version is
 // dropped, and the next read after the tombstone expired caches the new one.
-type ItemCache struct {
+type RedisCache struct {
 	client *goredis.Client
 	ttl    time.Duration
 }
 
-func NewItemCache(client *goredis.Client, ttl time.Duration) *ItemCache {
-	return &ItemCache{client: client, ttl: ttl}
+func NewRedisCache(client *goredis.Client, ttl time.Duration) *RedisCache {
+	return &RedisCache{client: client, ttl: ttl}
 }
 
-func itemKey(id uuid.UUID) string { return "item:" + id.String() }
+func cacheKey(id uuid.UUID) string { return "item:" + id.String() }
 
 // cachedItem is the JSON stored in Redis. Entries written in an older format
 // only live for the cache TTL, but a field that changes meaning needs a new
@@ -53,36 +51,36 @@ type cachedItem struct {
 }
 
 // Get returns the cached item; found is false on a cache miss.
-func (c *ItemCache) Get(ctx context.Context, id uuid.UUID) (item domain.Item, found bool, err error) {
-	raw, err := c.client.Get(ctx, itemKey(id)).Bytes()
+func (c *RedisCache) Get(ctx context.Context, id uuid.UUID) (item Item, found bool, err error) {
+	raw, err := c.client.Get(ctx, cacheKey(id)).Bytes()
 	if errors.Is(err, goredis.Nil) || string(raw) == tombstone {
-		return domain.Item{}, false, nil
+		return Item{}, false, nil
 	}
 	if err != nil {
-		return domain.Item{}, false, fmt.Errorf("cache get item: %w", err)
+		return Item{}, false, fmt.Errorf("cache get item: %w", err)
 	}
 	var cached cachedItem
 	if err := json.Unmarshal(raw, &cached); err != nil {
-		return domain.Item{}, false, fmt.Errorf("cache decode item: %w", err)
+		return Item{}, false, fmt.Errorf("cache decode item: %w", err)
 	}
-	return domain.Item(cached), true, nil
+	return Item(cached), true, nil
 }
 
 // Set caches the item unless the key already holds an item or a tombstone.
-func (c *ItemCache) Set(ctx context.Context, item domain.Item) error {
+func (c *RedisCache) Set(ctx context.Context, item Item) error {
 	raw, err := json.Marshal(cachedItem(item))
 	if err != nil {
 		return fmt.Errorf("cache encode item: %w", err)
 	}
-	if err := c.client.SetNX(ctx, itemKey(item.ID), raw, c.ttl).Err(); err != nil {
+	if err := c.client.SetNX(ctx, cacheKey(item.ID), raw, c.ttl).Err(); err != nil {
 		return fmt.Errorf("cache set item: %w", err)
 	}
 	return nil
 }
 
 // Invalidate drops the cached item after it was changed or deleted.
-func (c *ItemCache) Invalidate(ctx context.Context, id uuid.UUID) error {
-	if err := c.client.Set(ctx, itemKey(id), tombstone, tombstoneTTL).Err(); err != nil {
+func (c *RedisCache) Invalidate(ctx context.Context, id uuid.UUID) error {
+	if err := c.client.Set(ctx, cacheKey(id), tombstone, tombstoneTTL).Err(); err != nil {
 		return fmt.Errorf("cache invalidate item: %w", err)
 	}
 	return nil

@@ -17,33 +17,27 @@ import (
 	"github.com/example/go-skeleton/internal/server/policy"
 )
 
-// fakeItems records the input of the last call and answers with item.
-type fakeItems struct {
-	item   domain.Item
-	update domain.UpdateItemInput
-	search domain.SearchItemsInput
+// stubAPI answers the operations the tests call. The embedded interface is
+// nil, so any other operation panics, which the server turns into a 500.
+type stubAPI struct {
+	openapi.StrictServerInterface
 }
 
-func (f *fakeItems) Create(context.Context, domain.CreateItemInput) (domain.Item, error) {
-	return f.item, nil
+func (stubAPI) CreateItem(context.Context, openapi.CreateItemRequestObject) (openapi.CreateItemResponseObject, error) {
+	return openapi.CreateItem201JSONResponse{}, nil
 }
-func (f *fakeItems) Get(context.Context, uuid.UUID) (domain.Item, error) { return f.item, nil }
-func (f *fakeItems) List(context.Context, domain.ListItemsInput) ([]domain.Item, int64, error) {
-	return []domain.Item{f.item}, 1, nil
+
+func (stubAPI) UpdateItem(context.Context, openapi.UpdateItemRequestObject) (openapi.UpdateItemResponseObject, error) {
+	return openapi.UpdateItem200JSONResponse{}, nil
 }
-func (f *fakeItems) Update(_ context.Context, _ uuid.UUID, in domain.UpdateItemInput) (domain.Item, error) {
-	f.update = in
-	return f.item, nil
+
+func (stubAPI) SearchItems(context.Context, openapi.SearchItemsRequestObject) (openapi.SearchItemsResponseObject, error) {
+	return nil, domain.NotFound("nothing here")
 }
-func (f *fakeItems) Search(_ context.Context, in domain.SearchItemsInput) ([]domain.Item, int64, error) {
-	f.search = in
-	return []domain.Item{f.item}, 1, nil
-}
-func (f *fakeItems) Delete(context.Context, uuid.UUID) error { return nil }
 
 // newTestServer serves the full HTTP stack (routing, OpenAPI validation,
 // strict handlers) with authentication disabled.
-func newTestServer(t *testing.T, items ItemService) *httptest.Server {
+func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	enforcer, err := policy.NewEnforcer(nil, nil, log)
@@ -54,7 +48,7 @@ func newTestServer(t *testing.T, items ItemService) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv, err := New(Options{}, items, func(context.Context) error { return nil }, enforcer, table, log)
+	srv, err := New(Options{}, stubAPI{}, func(context.Context) error { return nil }, enforcer, table, log)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -80,41 +74,51 @@ func do(t *testing.T, method, url, body string) *http.Response {
 	return resp
 }
 
-func TestUpdateItem(t *testing.T) {
-	items := &fakeItems{item: domain.Item{ID: uuid.New(), Name: "gadget"}}
-	ts := newTestServer(t, items)
+// Requests that do not match the OpenAPI spec are rejected before they reach
+// a handler.
+func TestRequestsAreValidatedAgainstTheSpec(t *testing.T) {
+	ts := newTestServer(t)
+	url := ts.URL + "/v1/items/" + uuid.NewString()
 
-	resp := do(t, http.MethodPatch, ts.URL+"/v1/items/"+items.item.ID.String(), `{"description":"new"}`)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	if resp := do(t, http.MethodPatch, url, `{"description":"new"}`); resp.StatusCode != http.StatusOK {
+		t.Fatalf("valid request: status = %d, want 200", resp.StatusCode)
 	}
-	var got openapi.Item
-	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Id != items.item.ID {
-		t.Errorf("id = %s, want %s", got.Id, items.item.ID)
-	}
-	if items.update.Name != nil || items.update.Description == nil || *items.update.Description != "new" {
-		t.Errorf("service got %+v, want only description set", items.update)
-	}
-
 	for name, body := range map[string]string{
 		"empty body":    `{}`,
 		"empty name":    `{"name":""}`,
 		"unknown field": `{"colour":"red"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			resp := do(t, http.MethodPatch, ts.URL+"/v1/items/"+items.item.ID.String(), body)
+			resp := do(t, http.MethodPatch, url, body)
 			if resp.StatusCode != http.StatusBadRequest {
 				t.Errorf("status = %d, want 400", resp.StatusCode)
 			}
 		})
 	}
+	if resp := do(t, http.MethodGet, ts.URL+"/v1/items:search", ""); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("missing required query parameter: status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// An error a handler returns is answered according to its domain kind.
+func TestHandlerErrorsBecomeResponses(t *testing.T) {
+	ts := newTestServer(t)
+
+	resp := do(t, http.MethodGet, ts.URL+"/v1/items:search?q=x", "")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", resp.StatusCode)
+	}
+	var body openapi.Error
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Code != "not_found" || body.Message != "nothing here" {
+		t.Errorf("body = %+v, want the error's kind and public message", body)
+	}
 }
 
 func TestRequestBodyLimit(t *testing.T) {
-	ts := newTestServer(t, &fakeItems{})
+	ts := newTestServer(t)
 	big := `{"name":"x","description":"` + strings.Repeat("a", DefaultMaxBodyBytes) + `"}`
 
 	t.Run("announced size", func(t *testing.T) {
@@ -149,7 +153,7 @@ func TestRequestBodyLimit(t *testing.T) {
 }
 
 func TestUnknownRoutesGetJSONErrors(t *testing.T) {
-	ts := newTestServer(t, &fakeItems{})
+	ts := newTestServer(t)
 	for name, tc := range map[string]struct {
 		method, path string
 		status       int
@@ -177,29 +181,5 @@ func TestUnknownRoutesGetJSONErrors(t *testing.T) {
 				t.Error("a 405 must say which methods are allowed")
 			}
 		})
-	}
-}
-
-func TestSearchItems(t *testing.T) {
-	items := &fakeItems{item: domain.Item{ID: uuid.New(), Name: "widget"}}
-	ts := newTestServer(t, items)
-
-	resp := do(t, http.MethodGet, ts.URL+"/v1/items:search?q=wid&limit=5", "")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-	var got openapi.ItemList
-	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Total != 1 || len(got.Items) != 1 {
-		t.Errorf("got %d items, total %d; want 1, 1", len(got.Items), got.Total)
-	}
-	if items.search != (domain.SearchItemsInput{Query: "wid", Limit: 5}) {
-		t.Errorf("service got %+v", items.search)
-	}
-
-	if resp := do(t, http.MethodGet, ts.URL+"/v1/items:search", ""); resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("missing q: status = %d, want 400", resp.StatusCode)
 	}
 }

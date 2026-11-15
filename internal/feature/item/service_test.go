@@ -1,4 +1,4 @@
-package service
+package item
 
 import (
 	"context"
@@ -14,29 +14,29 @@ import (
 )
 
 type fakeStore struct {
-	items map[uuid.UUID]domain.Item
+	items map[uuid.UUID]Item
 	gets  int
 
 	lastQuery string
 	lastLimit int
 }
 
-func (f *fakeStore) Create(_ context.Context, item domain.Item) (domain.Item, error) {
+func (f *fakeStore) Create(_ context.Context, item Item) (Item, error) {
 	f.items[item.ID] = item
 	return item, nil
 }
 
-func (f *fakeStore) GetByID(_ context.Context, id uuid.UUID) (domain.Item, error) {
+func (f *fakeStore) GetByID(_ context.Context, id uuid.UUID) (Item, error) {
 	f.gets++
 	item, ok := f.items[id]
 	if !ok {
-		return domain.Item{}, domain.NotFound("item not found")
+		return Item{}, domain.NotFound("item not found")
 	}
 	return item, nil
 }
 
-func (f *fakeStore) List(_ context.Context, limit, _ int) ([]domain.Item, int64, error) {
-	out := make([]domain.Item, 0, limit)
+func (f *fakeStore) List(_ context.Context, limit, _ int) ([]Item, int64, error) {
+	out := make([]Item, 0, limit)
 	for _, it := range f.items {
 		if len(out) == limit {
 			break
@@ -46,10 +46,10 @@ func (f *fakeStore) List(_ context.Context, limit, _ int) ([]domain.Item, int64,
 	return out, int64(len(f.items)), nil
 }
 
-func (f *fakeStore) Update(_ context.Context, id uuid.UUID, in domain.UpdateItemInput) (domain.Item, error) {
+func (f *fakeStore) Update(_ context.Context, id uuid.UUID, in UpdateInput) (Item, error) {
 	item, ok := f.items[id]
 	if !ok {
-		return domain.Item{}, domain.NotFound("item not found")
+		return Item{}, domain.NotFound("item not found")
 	}
 	if in.Name != nil {
 		item.Name = *in.Name
@@ -61,10 +61,10 @@ func (f *fakeStore) Update(_ context.Context, id uuid.UUID, in domain.UpdateItem
 	return item, nil
 }
 
-func (f *fakeStore) Search(_ context.Context, query string, limit, _ int) ([]domain.Item, int64, error) {
+func (f *fakeStore) Search(_ context.Context, query string, limit, _ int) ([]Item, int64, error) {
 	f.lastQuery, f.lastLimit = query, limit
 	q := strings.ToLower(query)
-	var out []domain.Item
+	var out []Item
 	for _, it := range f.items {
 		if strings.Contains(strings.ToLower(it.Name), q) || strings.Contains(strings.ToLower(it.Description), q) {
 			out = append(out, it)
@@ -86,19 +86,19 @@ func (f *fakeStore) Delete(_ context.Context, id uuid.UUID) error {
 }
 
 type fakeCache struct {
-	items map[uuid.UUID]domain.Item
+	items map[uuid.UUID]Item
 	err   error
 }
 
-func (f *fakeCache) Get(_ context.Context, id uuid.UUID) (domain.Item, bool, error) {
+func (f *fakeCache) Get(_ context.Context, id uuid.UUID) (Item, bool, error) {
 	if f.err != nil {
-		return domain.Item{}, false, f.err
+		return Item{}, false, f.err
 	}
 	item, ok := f.items[id]
 	return item, ok, nil
 }
 
-func (f *fakeCache) Set(_ context.Context, item domain.Item) error {
+func (f *fakeCache) Set(_ context.Context, item Item) error {
 	if f.err != nil {
 		return f.err
 	}
@@ -112,11 +112,11 @@ func (f *fakeCache) Invalidate(_ context.Context, id uuid.UUID) error {
 }
 
 type fakePublisher struct {
-	published []domain.Item
+	published []Item
 	err       error
 }
 
-func (f *fakePublisher) PublishItemCreated(_ context.Context, item domain.Item) error {
+func (f *fakePublisher) PublishCreated(_ context.Context, item Item) error {
 	if f.err != nil {
 		return f.err
 	}
@@ -124,14 +124,14 @@ func (f *fakePublisher) PublishItemCreated(_ context.Context, item domain.Item) 
 	return nil
 }
 
-func newTestService(t *testing.T) (*ItemService, *fakeStore, *fakeCache, *fakePublisher) {
+func newTestService(t *testing.T) (*Service, *fakeStore, *fakeCache, *fakePublisher) {
 	t.Helper()
-	store := &fakeStore{items: map[uuid.UUID]domain.Item{}}
-	cache := &fakeCache{items: map[uuid.UUID]domain.Item{}}
+	store := &fakeStore{items: map[uuid.UUID]Item{}}
+	cache := &fakeCache{items: map[uuid.UUID]Item{}}
 	pub := &fakePublisher{}
-	svc, err := NewItemService(store, cache, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	svc, err := NewService(store, cache, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
-		t.Fatalf("NewItemService: %v", err)
+		t.Fatalf("NewService: %v", err)
 	}
 	return svc, store, cache, pub
 }
@@ -139,7 +139,7 @@ func newTestService(t *testing.T) (*ItemService, *fakeStore, *fakeCache, *fakePu
 func TestCreate(t *testing.T) {
 	svc, store, _, pub := newTestService(t)
 
-	item, err := svc.Create(t.Context(), domain.CreateItemInput{Name: "  widget  ", Description: "a thing"})
+	item, err := svc.Create(t.Context(), CreateInput{Name: "  widget  ", Description: "a thing"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -157,9 +157,9 @@ func TestCreate(t *testing.T) {
 func TestCreateRejectsInvalidInput(t *testing.T) {
 	svc, store, _, pub := newTestService(t)
 
-	for name, input := range map[string]string{"empty": "", "blank": "   ", "too long": strings.Repeat("n", domain.MaxItemNameLen+1)} {
+	for name, input := range map[string]string{"empty": "", "blank": "   ", "too long": strings.Repeat("n", MaxNameLen+1)} {
 		t.Run(name, func(t *testing.T) {
-			_, err := svc.Create(t.Context(), domain.CreateItemInput{Name: input})
+			_, err := svc.Create(t.Context(), CreateInput{Name: input})
 			if !domain.IsKind(err, domain.ErrKindInvalidInput) {
 				t.Fatalf("err = %v, want invalid input", err)
 			}
@@ -174,7 +174,7 @@ func TestCreateSucceedsWhenPublishFails(t *testing.T) {
 	svc, store, _, pub := newTestService(t)
 	pub.err = errors.New("broker down")
 
-	item, err := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget", Description: ""})
+	item, err := svc.Create(t.Context(), CreateInput{Name: "widget", Description: ""})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestCreateSucceedsWhenPublishFails(t *testing.T) {
 
 func TestGetReadsThroughCache(t *testing.T) {
 	svc, store, cache, _ := newTestService(t)
-	item, err := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget", Description: ""})
+	item, err := svc.Create(t.Context(), CreateInput{Name: "widget", Description: ""})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestGetReadsThroughCache(t *testing.T) {
 
 func TestGetFallsBackToStoreWhenCacheFails(t *testing.T) {
 	svc, _, cache, _ := newTestService(t)
-	item, err := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget", Description: ""})
+	item, err := svc.Create(t.Context(), CreateInput{Name: "widget", Description: ""})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestGetNotFound(t *testing.T) {
 
 func TestDeleteInvalidatesCache(t *testing.T) {
 	svc, _, cache, _ := newTestService(t)
-	item, _ := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget", Description: ""})
+	item, _ := svc.Create(t.Context(), CreateInput{Name: "widget", Description: ""})
 	if _, err := svc.Get(t.Context(), item.ID); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -251,26 +251,26 @@ func TestDeleteInvalidatesCache(t *testing.T) {
 
 func TestListValidatesPaging(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
-	for _, tc := range []struct{ limit, offset int }{{-1, 0}, {domain.MaxPageSize + 1, 0}, {10, -1}} {
-		_, _, err := svc.List(t.Context(), domain.ListItemsInput{Limit: tc.limit, Offset: tc.offset})
+	for _, tc := range []struct{ limit, offset int }{{-1, 0}, {MaxPageSize + 1, 0}, {10, -1}} {
+		_, _, err := svc.List(t.Context(), ListInput{Limit: tc.limit, Offset: tc.offset})
 		if !domain.IsKind(err, domain.ErrKindInvalidInput) {
 			t.Errorf("List(%d, %d) err = %v, want invalid input", tc.limit, tc.offset, err)
 		}
 	}
-	if _, _, err := svc.List(t.Context(), domain.ListItemsInput{}); err != nil {
+	if _, _, err := svc.List(t.Context(), ListInput{}); err != nil {
 		t.Errorf("List with default limit: %v", err)
 	}
 }
 
 func TestUpdateChangesOnlySetFields(t *testing.T) {
 	svc, store, _, _ := newTestService(t)
-	item, err := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget", Description: "a thing"})
+	item, err := svc.Create(t.Context(), CreateInput{Name: "widget", Description: "a thing"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	name := "  gadget  "
-	got, err := svc.Update(t.Context(), item.ID, domain.UpdateItemInput{Name: &name})
+	got, err := svc.Update(t.Context(), item.ID, UpdateInput{Name: &name})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -287,13 +287,13 @@ func TestUpdateChangesOnlySetFields(t *testing.T) {
 
 func TestUpdateInvalidatesCache(t *testing.T) {
 	svc, _, cache, _ := newTestService(t)
-	item, _ := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget"})
+	item, _ := svc.Create(t.Context(), CreateInput{Name: "widget"})
 	if _, err := svc.Get(t.Context(), item.ID); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 
 	desc := "new"
-	if _, err := svc.Update(t.Context(), item.ID, domain.UpdateItemInput{Description: &desc}); err != nil {
+	if _, err := svc.Update(t.Context(), item.ID, UpdateInput{Description: &desc}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	if _, ok := cache.items[item.ID]; ok {
@@ -310,17 +310,17 @@ func TestUpdateInvalidatesCache(t *testing.T) {
 
 func TestUpdateErrors(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
-	item, _ := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget"})
+	item, _ := svc.Create(t.Context(), CreateInput{Name: "widget"})
 	blank, name := "   ", "gadget"
 
 	for label, tc := range map[string]struct {
 		id   uuid.UUID
-		in   domain.UpdateItemInput
+		in   UpdateInput
 		kind domain.ErrKind
 	}{
-		"no fields":  {item.ID, domain.UpdateItemInput{}, domain.ErrKindInvalidInput},
-		"blank name": {item.ID, domain.UpdateItemInput{Name: &blank}, domain.ErrKindInvalidInput},
-		"not found":  {uuid.New(), domain.UpdateItemInput{Name: &name}, domain.ErrKindNotFound},
+		"no fields":  {item.ID, UpdateInput{}, domain.ErrKindInvalidInput},
+		"blank name": {item.ID, UpdateInput{Name: &blank}, domain.ErrKindInvalidInput},
+		"not found":  {uuid.New(), UpdateInput{Name: &name}, domain.ErrKindNotFound},
 	} {
 		t.Run(label, func(t *testing.T) {
 			if _, err := svc.Update(t.Context(), tc.id, tc.in); !domain.IsKind(err, tc.kind) {
@@ -332,7 +332,7 @@ func TestUpdateErrors(t *testing.T) {
 
 func TestSearch(t *testing.T) {
 	svc, store, _, _ := newTestService(t)
-	for _, in := range []domain.CreateItemInput{
+	for _, in := range []CreateInput{
 		{Name: "Blue widget"},
 		{Name: "gadget", Description: "works with any WIDGET"},
 		{Name: "sprocket"},
@@ -342,25 +342,25 @@ func TestSearch(t *testing.T) {
 		}
 	}
 
-	items, total, err := svc.Search(t.Context(), domain.SearchItemsInput{Query: "  widget "})
+	items, total, err := svc.Search(t.Context(), SearchInput{Query: "  widget "})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	if total != 2 || len(items) != 2 {
 		t.Errorf("got %d items, total %d; want 2, 2", len(items), total)
 	}
-	if store.lastQuery != "widget" || store.lastLimit != domain.DefaultPageSize {
+	if store.lastQuery != "widget" || store.lastLimit != DefaultPageSize {
 		t.Errorf("store got query %q limit %d, want trimmed query and default limit", store.lastQuery, store.lastLimit)
 	}
 }
 
 func TestSearchValidatesInput(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
-	for label, in := range map[string]domain.SearchItemsInput{
+	for label, in := range map[string]SearchInput{
 		"empty query":    {},
 		"blank query":    {Query: "   "},
-		"query too long": {Query: strings.Repeat("q", domain.MaxSearchQueryLen+1)},
-		"bad limit":      {Query: "widget", Limit: domain.MaxPageSize + 1},
+		"query too long": {Query: strings.Repeat("q", MaxSearchQueryLen+1)},
+		"bad limit":      {Query: "widget", Limit: MaxPageSize + 1},
 		"bad offset":     {Query: "widget", Offset: -1},
 	} {
 		t.Run(label, func(t *testing.T) {
