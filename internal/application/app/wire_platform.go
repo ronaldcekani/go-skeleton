@@ -35,6 +35,7 @@ func wirePlatform(ctx context.Context, cfg config.Config, log *slog.Logger, clea
 		ServiceName:    cfg.Service.Name,
 		ServiceVersion: cfg.Service.Version,
 		Environment:    cfg.Service.Environment,
+		Domain:         cfg.Service.Domain,
 		Tracing: telemetry.Signal{
 			Enabled:     t.TracingEnabled,
 			EndpointURL: t.TracingEndpointURL,
@@ -109,9 +110,6 @@ func wirePlatform(ctx context.Context, cfg config.Config, log *slog.Logger, clea
 			return nil, err
 		}
 		cleanup.push("authenticator", closeNoErr(p.authenticator.Close))
-		if cfg.Auth.Audience == "" {
-			log.WarnContext(ctx, "auth.audience is not set: access tokens issued to any client of the realm are accepted")
-		}
 
 		if cfg.RateLimit.Enabled {
 			p.limiter = ratelimit.New(p.redis)

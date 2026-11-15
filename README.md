@@ -221,20 +221,22 @@ and one line in each of the two mapping functions.
 
 Callers send a Keycloak access token as `Authorization: Bearer <token>` (the
 `authorization` metadata key on gRPC). The token's signature, issuer, expiry
-and (optionally) audience are verified locally against the realm's signing
+and audience are verified locally against the realm's signing
 keys, which are fetched at startup and refreshed in the background; no call
 to Keycloak is made per request. ID and refresh tokens are rejected.
 
-Set `auth.audience` in production. Without it a token issued to any client
-of the realm is accepted, and the app logs a warning at startup. Keycloak
-only puts this service in a token's `aud` claim if the client has an audience
-mapper for it.
+`auth.audience` is required: a token is only accepted if its `aud` claim
+contains it, so tokens issued for other clients of the realm are rejected.
+Keycloak does not add a service to `aud` by itself; the client that requests
+the token needs an audience mapper for it (the local realm has one on
+`skeleton-cli`, see `deploy/keycloak/realm.json`).
 
 What each endpoint requires is configured once, for both transports:
 
 ```yaml
 auth:
   issuer: https://keycloak.example.com/realms/acme
+  audience: go-skeleton
 endpoints:
   rules:
     - name: read-items
@@ -304,6 +306,11 @@ live in `internal/config/config.go`.
 - **Logs**: pass the request context (`log.InfoContext(ctx, ...)`) and the
   record carries `trace_id` and `span_id`. Logs are also exported over
   OTLP when `telemetry.logging_enabled` is set.
+- **Domain**: set `service.domain` (for example `sales`) to label everything
+  the service emits with its business domain. Traces, metrics and exported
+  logs carry it as the `service.namespace` resource attribute, and the local
+  log output as a `domain` field. With Prometheus this also changes the `job`
+  label from `go-skeleton` to `sales/go-skeleton`.
 - **Export**: each signal has its own endpoint URL and protocol (`grpc` or
   `http`). An Instana agent accepts both on `:4317` / `:4318` without a key;
   exporting to the Instana backend directly needs `telemetry.instana_key`,
