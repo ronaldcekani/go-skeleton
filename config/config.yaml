@@ -5,6 +5,7 @@ service:
   name: go-skeleton
   version: dev
   environment: local
+  domain: ""   # business domain, e.g. sales; attached to logs, traces and metrics when set
 
 log:
   level: debug   # debug | info | warn | error

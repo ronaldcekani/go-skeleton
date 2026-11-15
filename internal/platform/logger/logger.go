@@ -21,6 +21,7 @@ type Options struct {
 	Service string
 	Version string
 	Env     string
+	Domain  string // business domain of the service; left out of the output when empty
 	// Export also sends every record to the global OpenTelemetry
 	// LoggerProvider. Until telemetry installs one, records sent there are
 	// dropped.
@@ -48,11 +49,15 @@ func New(w io.Writer, opts Options) (*slog.Logger, error) {
 
 	// The service attributes are only added to the local output: exported
 	// records carry them as OpenTelemetry resource attributes instead.
-	var out slog.Handler = &traceHandler{Handler: h.WithAttrs([]slog.Attr{
+	attrs := []slog.Attr{
 		slog.String("service", opts.Service),
 		slog.String("version", opts.Version),
 		slog.String("env", opts.Env),
-	})}
+	}
+	if opts.Domain != "" {
+		attrs = append(attrs, slog.String("domain", opts.Domain))
+	}
+	var out slog.Handler = &traceHandler{Handler: h.WithAttrs(attrs)}
 	if opts.Export {
 		// The bridge does not filter by level itself.
 		exported := &levelHandler{Handler: otelslog.NewHandler(opts.Service), level: level}

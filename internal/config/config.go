@@ -51,7 +51,9 @@ type Service struct {
 	Name        string `koanf:"name"`
 	Version     string `koanf:"version"`
 	Environment string `koanf:"environment"`
-	Domain      string `koanf:"domain"` // The application domain of the service; ex: sales
+	// Domain is the business domain the service belongs to, e.g. "sales".
+	// When set, it is attached to logs, traces and metrics.
+	Domain string `koanf:"domain"`
 }
 
 type Log struct {

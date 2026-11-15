@@ -15,6 +15,7 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -44,6 +45,10 @@ type Options struct {
 	ServiceName    string
 	ServiceVersion string
 	Environment    string
+	// Domain is the business domain the service belongs to, e.g. "sales".
+	// It is exported as the service.namespace resource attribute; empty
+	// leaves the attribute out.
+	Domain string
 
 	Tracing Signal
 	// TraceSampling is the parent-based ratio of traces to sample, 0..1.
@@ -107,11 +112,7 @@ func Setup(ctx context.Context, opts Options, log *slog.Logger) (_ ShutdownFunc,
 		log.Warn("opentelemetry error", slog.Any("error", err))
 	}))
 
-	res, err := resource.Merge(resource.Default(), resource.NewSchemaless(
-		semconv.ServiceName(opts.ServiceName),
-		semconv.ServiceVersion(opts.ServiceVersion),
-		semconv.DeploymentEnvironment(opts.Environment),
-	))
+	res, err := newResource(opts)
 	if err != nil {
 		return nil, fmt.Errorf("build otel resource: %w", err)
 	}
@@ -177,6 +178,22 @@ func Setup(ctx context.Context, opts Options, log *slog.Logger) (_ ShutdownFunc,
 		slog.Bool("instana_key", opts.InstanaKey != ""))
 
 	return shutdown, nil
+}
+
+// newResource describes this service. Every exported span, metric and log
+// record carries these attributes.
+func newResource(opts Options) (*resource.Resource, error) {
+	attrs := []attribute.KeyValue{
+		semconv.ServiceName(opts.ServiceName),
+		semconv.ServiceVersion(opts.ServiceVersion),
+		semconv.DeploymentEnvironment(opts.Environment),
+	}
+	if opts.Domain != "" {
+		// The standard attribute for grouping services, which backends
+		// already know how to filter and group by.
+		attrs = append(attrs, semconv.ServiceNamespace(opts.Domain))
+	}
+	return resource.Merge(resource.Default(), resource.NewSchemaless(attrs...))
 }
 
 func newTraceExporter(ctx context.Context, s Signal, headers map[string]string) (sdktrace.SpanExporter, error) {

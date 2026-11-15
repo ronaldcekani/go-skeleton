@@ -39,6 +39,7 @@ func run() int {
 		Service: cfg.Service.Name,
 		Version: cfg.Service.Version,
 		Env:     cfg.Service.Environment,
+		Domain:  cfg.Service.Domain,
 		Export:  cfg.Telemetry.LoggingEnabled,
 	})
 	if err != nil {

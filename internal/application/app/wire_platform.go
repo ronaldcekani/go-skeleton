@@ -35,6 +35,7 @@ func wirePlatform(ctx context.Context, cfg config.Config, log *slog.Logger, clea
 		ServiceName:    cfg.Service.Name,
 		ServiceVersion: cfg.Service.Version,
 		Environment:    cfg.Service.Environment,
+		Domain:         cfg.Service.Domain,
 		Tracing: telemetry.Signal{
 			Enabled:     t.TracingEnabled,
 			EndpointURL: t.TracingEndpointURL,
