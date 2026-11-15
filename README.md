@@ -469,6 +469,31 @@ it as a `component` from one of the `wire_*.go` files.
    the migrations, the packages under `internal/feature` and their wiring in
    `internal/application/app` (see [Adding a feature](#adding-a-feature)).
 
+## Migrating an existing project
+
+To move an existing Go service onto this architecture, use the Claude Code
+skill in `.claude/skills/refactor-to-skeleton`. It works in steps that each
+leave the service running, and it does not rely on careful reading to show
+that nothing was lost: it records the old code's behavior in tests first, and
+`tools/refactorcheck.go` fails until every declaration, test, literal and
+file of the old code is either unchanged or listed in a ledger with where it
+went.
+
+Install it once, then run it inside the project to migrate, giving it the
+path of a checkout of this repository:
+
+```bash
+cp -r .claude/skills/refactor-to-skeleton ~/.claude/skills/
+```
+
+```
+/refactor-to-skeleton /path/to/go-skeleton
+```
+
+It asks for decisions once, after it has read the project: which of this
+skeleton's libraries to adopt, and what to do where a convention here differs
+from what the service does today. The default is to keep today's behavior.
+
 ## Things to know
 
 - Events are best effort. They are queued after the DB write commits and
