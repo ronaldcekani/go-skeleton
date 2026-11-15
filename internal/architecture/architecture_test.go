@@ -36,7 +36,9 @@ var allowed = map[string][]string{
 	// Only the wiring sees everything.
 	"application": {"domain", "platform", "gen", "feature", "server", "config", "application"},
 	"config":      {},
-	"gen":         {"gen"},
+	// Test helpers. No area lists testkit, so only test files can import it.
+	"testkit": {},
+	"gen":     {"gen"},
 }
 
 func TestDependencyRules(t *testing.T) {

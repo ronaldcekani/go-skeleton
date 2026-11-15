@@ -62,6 +62,25 @@ grpcurl -plaintext -H "authorization: Bearer $TOKEN" -d '{"limit": 10}' \
 | `GET /v1/items/{id}`         | `GetItem`     | one item (read through the Redis cache)      |
 | `PATCH /v1/items/{id}`       | `UpdateItem`  | change only the fields that are sent         |
 | `DELETE /v1/items/{id}`      | `DeleteItem`  | delete an item                               |
+| `POST /v1/orders`            | `CreateOrder` | price and store an order                     |
+| `GET /v1/orders/{id}`        | `GetOrder`    | one order with its lines                     |
+
+Orders need a customer, prices, a discount and an exchange rate to exist.
+`make seed` loads a small set, after which this prices two lines for a
+wholesale customer (list prices in EUR and USD, 10% group discount, total in
+EUR):
+
+```bash
+curl -X POST localhost:8080/v1/orders -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -d '{
+    "customer_id": "00000000-0000-7000-8000-0000000000c1",
+    "currency": "EUR",
+    "lines": [
+      {"item_id": "00000000-0000-7000-8000-0000000000a1", "quantity": 2},
+      {"item_id": "00000000-0000-7000-8000-0000000000a2", "quantity": 1}
+    ]
+  }'
+```
 
 To skip Keycloak while developing, run with `APP_AUTH__ENABLED=false`.
 
@@ -86,7 +105,7 @@ an entry in the `modes` map in `cmd/app/main.go`.
 
 ```
 api/openapi/openapi.yaml      HTTP API definition (source of truth)
-api/proto/item/v1/item.proto  gRPC API definition (source of truth)
+api/proto/<name>/v1/*.proto   gRPC API definitions (source of truth)
 cmd/app/                      main: config, logger, signals, mode dispatch
 config/config.yaml            local config
 migrations/                   goose SQL migrations (embedded)
@@ -99,6 +118,8 @@ internal/
       cache.go                Redis
       events.go               Kafka publisher and consumer
       http.go, grpc.go        handlers: request -> input, result -> response
+    order/                    same files, plus:
+      pricing.go              the pricing rules, as functions without I/O
   domain/                     what every feature shares: errors, Principal
   server/httpserver/          HTTP server: middleware, error translation
   server/grpcserver/          gRPC server: interceptors, error translation
@@ -112,7 +133,9 @@ internal/
   config/                     config struct, loading, validation
   gen/                        generated code — do not edit
   architecture/               test that enforces the dependency rules below
+  testkit/mapcheck/           test helper: is a mapper complete?
 deploy/keycloak/              realm imported by the local Keycloak
+deploy/postgres/seed.sql      demo data for the order example (`make seed`)
 tools/                        separate Go module pinning the code generators
 ```
 
@@ -143,6 +166,47 @@ and the types in it are the feature's own:
   the authenticated `Principal`. Anything "sort of shared" gets a per-feature
   view instead.
 
+### Reading a lot, returning little: the order example
+
+Creating an order loads the customer and their groups, the item prices, the
+discounts and the exchange rates, and returns one `Order`. It shows how a
+use case with many inputs stays readable:
+
+- **The inputs are the feature's own types.** `order.Customer` is an ID and
+  the group IDs, not a user record; `order.Discount` has a nil `GroupID` for
+  "everyone", where the table has a nullable column; `order.Rate` holds an
+  exact `big.Rat`, where the table has a `NUMERIC`. `store.go` does that
+  translation and nothing else sees the rows.
+- **One small interface per source.** The service declares `Customers`,
+  `Catalog`, `Rates` and `Store`. One Postgres store implements all four
+  today; if customers move to a feature or a service of their own, only the
+  argument in `wire_features.go` changes.
+- **Load, decide, save.** `Service.Create` loads through the interfaces,
+  calls `price`, and saves the result in a transaction. `price`
+  (`pricing.go`) is the whole rule and does no I/O, so `pricing_test.go`
+  covers conversion, discounts and rounding with plain structs.
+
+### Mappers are checked for completeness
+
+Hand-written mappers have one weakness: add a field to `Item`, and every
+mapper that does not mention it still compiles. `mapping_test.go` in each
+feature closes that gap with `mapcheck.Check`, which runs a mapper on
+generated values and fails if
+
+- a field of the result stays empty (the mapper does not fill it), or
+- changing one field of the source does not change the result (the mapper
+  does not read it).
+
+```go
+mapcheck.Check(t, itemRow.toItem)
+mapcheck.Check(t, toAPIOrder, mapcheck.IgnoreSource("InternalNote"))
+```
+
+A field that is left out on purpose has to be named, which turns an
+oversight into a visible decision. Add every new mapper to that test.
+
+### Dependency rules
+
 The dependency rules are enforced by `internal/architecture`, which runs with
 `make test`:
 
@@ -153,13 +217,15 @@ The dependency rules are enforced by `internal/architecture`, which runs with
 | `feature/<x>` | `domain`, `platform`, `gen`             |
 | `server`      | `domain`, `platform`, `gen`             |
 | `application` | everything (it wires the rest together) |
+| `testkit`     | nothing; only test files may import it  |
 
 ### Adding a feature
 
 1. Add the endpoints to `api/openapi/openapi.yaml`, a new
    `api/proto/<name>/v1/<name>.proto`, and run `make generate`.
 2. Create `internal/feature/<name>` with the same files as `item`. Leave out
-   what the feature does not have (no cache, no events).
+   what the feature does not have (`order` has no cache and no events), and
+   list its mappers in a `mapping_test.go`.
 3. Wire it in `internal/application/app`:
    - `wire_features.go`: build the service.
    - `wire_servers.go`: embed its `HTTPHandler` in `httpAPI` and add its
@@ -173,7 +239,8 @@ The dependency rules are enforced by `internal/architecture`, which runs with
 Stores never use their pool directly: every query goes through
 `postgres.Conn(ctx, r.db)`, which returns the transaction carried by the
 context, or the pool when there is none. A service that has to write through
-several stores atomically takes a transactor and wraps the calls:
+several statements or stores atomically takes a transactor and wraps the
+calls, as `order.Service.Create` does for the order and its lines:
 
 ```go
 // internal/feature/order/service.go: declared next to the other interfaces
@@ -181,19 +248,14 @@ type Transactor interface {
 	WithinTx(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-func (s *Service) Place(ctx context.Context, in PlaceInput) error {
-	err := s.tx.WithinTx(ctx, func(ctx context.Context) error {
-		if err := s.orders.Create(ctx, order); err != nil {
-			return err
-		}
-		return s.items.Reserve(ctx, order.ItemID) // any error rolls both back
-	})
-	if err != nil {
-		return err
-	}
-	// committed: now invalidate caches and publish events
-	return nil
+err = s.tx.WithinTx(ctx, func(ctx context.Context) error {
+	order, err = s.store.Create(ctx, order) // any error rolls everything back
+	return err
+})
+if err != nil {
+	return Order{}, err
 }
+// committed: now invalidate caches and publish events
 ```
 
 - Pass the `ctx` that `fn` receives to the stores; a call made with the
@@ -209,9 +271,9 @@ func (s *Service) Place(ctx context.Context, in PlaceInput) error {
 
 The implementation is `*postgres.Transactor`, available in the wiring as
 `p.tx`; in service unit tests a fake that just calls `fn(ctx)` is enough.
-`internal/platform/postgres/tx_test.go` and
-`internal/feature/item/store_test.go` run against a real database and are
-skipped unless `TEST_POSTGRES_DSN` is set. The cache tests in
+`internal/platform/postgres/tx_test.go` and the `store_test.go` of each
+feature run against a real database and are skipped unless
+`TEST_POSTGRES_DSN` is set. The cache tests in
 `internal/feature/item/cache_test.go` need a real Redis in the same way
 (`TEST_REDIS_ADDR`):
 
@@ -353,8 +415,8 @@ live in `internal/config/config.go`.
   travels in Kafka headers, so a request and the consumption of the event it
   produced appear in one trace.
 - **Metrics**: HTTP and gRPC server metrics, DB pool stats, Redis and Kafka
-  client metrics, Go runtime metrics, plus two example business counters in
-  `internal/feature/item/service.go`.
+  client metrics, Go runtime metrics, plus example business counters in the
+  services under `internal/feature`.
 - **Logs**: pass the request context (`log.InfoContext(ctx, ...)`) and the
   record carries `trace_id` and `span_id`. Logs are also exported over
   OTLP when `telemetry.logging_enabled` is set.
@@ -403,9 +465,9 @@ it as a `component` from one of the `wire_*.go` files.
 
 1. Rename the module: replace `github.com/example/go-skeleton` everywhere
    (`go.mod`, imports, `go_package` in the proto file), then `make generate`.
-2. Replace the example `item` feature: the API definitions, the migration,
-   `internal/feature/item` and its wiring in `internal/application/app`
-   (see [Adding a feature](#adding-a-feature)).
+2. Replace the example `item` and `order` features: the API definitions,
+   the migrations, the packages under `internal/feature` and their wiring in
+   `internal/application/app` (see [Adding a feature](#adding-a-feature)).
 
 ## Things to know
 

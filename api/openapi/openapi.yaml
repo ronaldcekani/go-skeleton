@@ -160,6 +160,59 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "500": { $ref: "#/components/responses/InternalError" }
+  /v1/orders:
+    post:
+      operationId: createOrder
+      summary: Create an order
+      description: >
+        Prices the lines for the customer (item prices, the best discount the
+        customer's groups give, conversion to the order currency) and stores
+        the result. Amounts are in minor units (cents).
+      tags: [orders]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateOrderRequest" }
+      responses:
+        "201":
+          description: The created order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/InternalError" }
+  /v1/orders/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getOrder
+      summary: Get an order by ID
+      tags: [orders]
+      responses:
+        "200":
+          description: The order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "404":
+          description: Order not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "500": { $ref: "#/components/responses/InternalError" }
 components:
   securitySchemes:
     bearerAuth:
@@ -222,6 +275,60 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Item" }
         total: { type: integer, format: int64 }
+    CreateOrderRequest:
+      type: object
+      required: [customer_id, currency, lines]
+      additionalProperties: false
+      properties:
+        customer_id: { type: string, format: uuid }
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          description: ISO 4217 code the order is priced in
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: "#/components/schemas/CreateOrderLine" }
+    CreateOrderLine:
+      type: object
+      required: [item_id, quantity]
+      additionalProperties: false
+      properties:
+        item_id: { type: string, format: uuid }
+        quantity: { type: integer, minimum: 1, maximum: 10000 }
+    Order:
+      type: object
+      required: [id, customer_id, currency, lines, total_amount, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        customer_id: { type: string, format: uuid }
+        currency: { type: string }
+        lines:
+          type: array
+          items: { $ref: "#/components/schemas/OrderLine" }
+        total_amount:
+          type: integer
+          format: int64
+          description: Sum of the line amounts, in minor units
+        created_at: { type: string, format: date-time }
+    OrderLine:
+      type: object
+      required: [item_id, quantity, unit_amount, discount_basis_points, amount]
+      properties:
+        item_id: { type: string, format: uuid }
+        quantity: { type: integer }
+        unit_amount:
+          type: integer
+          format: int64
+          description: Price of one unit in the order currency, before discount
+        discount_basis_points:
+          type: integer
+          description: Discount applied to the line; 100 basis points are 1%
+        amount:
+          type: integer
+          format: int64
+          description: What the line costs after the discount
     Error:
       type: object
       required: [code, message]

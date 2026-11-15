@@ -5,7 +5,7 @@ APP := go-skeleton
 
 export PATH := $(BIN):$(PATH)
 
-.PHONY: help tools generate generate-openapi generate-proto lint-proto build run migrate migrate-down migrate-status test vet tidy up down clean
+.PHONY: help tools generate generate-openapi generate-proto lint-proto build run migrate migrate-down migrate-status seed test vet tidy up down clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-18s %s\n", $$1, $$2}'
@@ -42,6 +42,9 @@ migrate-down: ## Roll back the last DB migration
 
 migrate-status: ## Print DB migration status
 	go run ./cmd/app --mode=migration --migration-command=status --config=config/config.yaml
+
+seed: ## Load demo data for the order example into the local Postgres
+	docker compose exec -T postgres psql -U postgres -d skeleton -v ON_ERROR_STOP=1 < deploy/postgres/seed.sql
 
 test: ## Run tests (set TEST_POSTGRES_DSN and TEST_REDIS_ADDR to include the Postgres and Redis tests)
 	go test -race ./...

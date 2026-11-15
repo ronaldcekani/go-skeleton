@@ -30,6 +30,20 @@ type CreateItemRequest struct {
 	Name        string  `json:"name"`
 }
 
+// CreateOrderLine defines model for CreateOrderLine.
+type CreateOrderLine struct {
+	ItemId   openapi_types.UUID `json:"item_id"`
+	Quantity int                `json:"quantity"`
+}
+
+// CreateOrderRequest defines model for CreateOrderRequest.
+type CreateOrderRequest struct {
+	// Currency ISO 4217 code the order is priced in
+	Currency   string             `json:"currency"`
+	CustomerId openapi_types.UUID `json:"customer_id"`
+	Lines      []CreateOrderLine  `json:"lines"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	Code    string `json:"code"`
@@ -49,6 +63,32 @@ type Item struct {
 type ItemList struct {
 	Items []Item `json:"items"`
 	Total int64  `json:"total"`
+}
+
+// Order defines model for Order.
+type Order struct {
+	CreatedAt  time.Time          `json:"created_at"`
+	Currency   string             `json:"currency"`
+	CustomerId openapi_types.UUID `json:"customer_id"`
+	Id         openapi_types.UUID `json:"id"`
+	Lines      []OrderLine        `json:"lines"`
+
+	// TotalAmount Sum of the line amounts, in minor units
+	TotalAmount int64 `json:"total_amount"`
+}
+
+// OrderLine defines model for OrderLine.
+type OrderLine struct {
+	// Amount What the line costs after the discount
+	Amount int64 `json:"amount"`
+
+	// DiscountBasisPoints Discount applied to the line; 100 basis points are 1%
+	DiscountBasisPoints int                `json:"discount_basis_points"`
+	ItemId              openapi_types.UUID `json:"item_id"`
+	Quantity            int                `json:"quantity"`
+
+	// UnitAmount Price of one unit in the order currency, before discount
+	UnitAmount int64 `json:"unit_amount"`
 }
 
 // UpdateItemRequest defines model for UpdateItemRequest.
@@ -88,6 +128,9 @@ type CreateItemJSONRequestBody = CreateItemRequest
 // UpdateItemJSONRequestBody defines body for UpdateItem for application/json ContentType.
 type UpdateItemJSONRequestBody = UpdateItemRequest
 
+// CreateOrderJSONRequestBody defines body for CreateOrder for application/json ContentType.
+type CreateOrderJSONRequestBody = CreateOrderRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// ListItems List items
@@ -108,6 +151,12 @@ type ServerInterface interface {
 	// SearchItems Search items by name or description
 	// (GET /v1/items:search)
 	SearchItems(w http.ResponseWriter, r *http.Request, params SearchItemsParams)
+	// CreateOrder Create an order
+	// (POST /v1/orders)
+	CreateOrder(w http.ResponseWriter, r *http.Request)
+	// GetOrder Get an order by ID
+	// (GET /v1/orders/{id})
+	GetOrder(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -316,6 +365,46 @@ func (siw *ServerInterfaceWrapper) SearchItems(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// CreateOrder operation middleware
+func (siw *ServerInterfaceWrapper) CreateOrder(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateOrder(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOrder operation middleware
+func (siw *ServerInterfaceWrapper) GetOrder(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrder(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -442,6 +531,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/items/{id}", wrapper.DeleteItem)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/items/{id}", wrapper.GetItem)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/items/{id}", wrapper.UpdateItem)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/orders", wrapper.CreateOrder)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/orders/{id}", wrapper.GetOrder)
 
 	return m
 }
@@ -984,6 +1075,182 @@ func (response SearchItems500JSONResponse) VisitSearchItemsResponse(w http.Respo
 	return err
 }
 
+type CreateOrderRequestObject struct {
+	Body *CreateOrderJSONRequestBody
+}
+
+type CreateOrderResponseObject interface {
+	VisitCreateOrderResponse(w http.ResponseWriter) error
+}
+
+type CreateOrder201JSONResponse Order
+
+func (response CreateOrder201JSONResponse) VisitCreateOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateOrder400JSONResponse Error
+
+func (response CreateOrder400JSONResponse) VisitCreateOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateOrder401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateOrder401JSONResponse) VisitCreateOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateOrder413JSONResponse struct{ PayloadTooLargeJSONResponse }
+
+func (response CreateOrder413JSONResponse) VisitCreateOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateOrder429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateOrder429JSONResponse) VisitCreateOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateOrder500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response CreateOrder500JSONResponse) VisitCreateOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrderRequestObject struct {
+	Id openapi_types.UUID `json:"id"`
+}
+
+type GetOrderResponseObject interface {
+	VisitGetOrderResponse(w http.ResponseWriter) error
+}
+
+type GetOrder200JSONResponse Order
+
+func (response GetOrder200JSONResponse) VisitGetOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrder401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetOrder401JSONResponse) VisitGetOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrder404JSONResponse Error
+
+func (response GetOrder404JSONResponse) VisitGetOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrder429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetOrder429JSONResponse) VisitGetOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetOrder500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response GetOrder500JSONResponse) VisitGetOrderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// ListItems List items
@@ -1004,6 +1271,12 @@ type StrictServerInterface interface {
 	// SearchItems Search items by name or description
 	// (GET /v1/items:search)
 	SearchItems(ctx context.Context, request SearchItemsRequestObject) (SearchItemsResponseObject, error)
+	// CreateOrder Create an order
+	// (POST /v1/orders)
+	CreateOrder(ctx context.Context, request CreateOrderRequestObject) (CreateOrderResponseObject, error)
+	// GetOrder Get an order by ID
+	// (GET /v1/orders/{id})
+	GetOrder(ctx context.Context, request GetOrderRequestObject) (GetOrderResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -1213,31 +1486,96 @@ func (sh *strictHandler) SearchItems(w http.ResponseWriter, r *http.Request, par
 	}
 }
 
+// CreateOrder operation middleware
+func (sh *strictHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
+	var request CreateOrderRequestObject
+
+	var body CreateOrderJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateOrder(ctx, request.(CreateOrderRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateOrder")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateOrderResponseObject); ok {
+		if err := validResponse.VisitCreateOrderResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetOrder operation middleware
+func (sh *strictHandler) GetOrder(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	var request GetOrderRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetOrder(ctx, request.(GetOrderRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetOrder")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetOrderResponseObject); ok {
+		if err := validResponse.VisitGetOrderResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

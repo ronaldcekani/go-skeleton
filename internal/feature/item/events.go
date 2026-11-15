@@ -36,6 +36,16 @@ type itemPayload struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+func toPayload(it Item) itemPayload {
+	return itemPayload{
+		ID:          it.ID,
+		Name:        it.Name,
+		Description: it.Description,
+		CreatedAt:   it.CreatedAt,
+		UpdatedAt:   it.UpdatedAt,
+	}
+}
+
 // KafkaPublisher publishes item events, keyed by item ID so events for one
 // item stay ordered within a partition.
 type KafkaPublisher struct {
@@ -54,13 +64,7 @@ func (p *KafkaPublisher) PublishCreated(ctx context.Context, item Item) error {
 	payload, err := json.Marshal(itemEvent{
 		Type:       eventTypeItemCreated,
 		OccurredAt: p.now().UTC(),
-		Item: itemPayload{
-			ID:          item.ID,
-			Name:        item.Name,
-			Description: item.Description,
-			CreatedAt:   item.CreatedAt,
-			UpdatedAt:   item.UpdatedAt,
-		},
+		Item:       toPayload(item),
 	})
 	if err != nil {
 		return fmt.Errorf("encode item created event: %w", err)

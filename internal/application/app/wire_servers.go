@@ -11,6 +11,7 @@ import (
 
 	"github.com/example/go-skeleton/internal/config"
 	"github.com/example/go-skeleton/internal/feature/item"
+	"github.com/example/go-skeleton/internal/feature/order"
 	openapi "github.com/example/go-skeleton/internal/gen/openapi"
 	"github.com/example/go-skeleton/internal/platform/ratelimit"
 	"github.com/example/go-skeleton/internal/server/grpcserver"
@@ -32,9 +33,13 @@ type servers struct {
 // every field would be called HTTPHandler.
 type httpAPI struct {
 	*itemHTTP
+	*orderHTTP
 }
 
-type itemHTTP = item.HTTPHandler
+type (
+	itemHTTP  = item.HTTPHandler
+	orderHTTP = order.HTTPHandler
+)
 
 var _ openapi.StrictServerInterface = httpAPI{}
 
@@ -69,7 +74,10 @@ func wireServers(ctx context.Context, cfg config.Config, p *platform, f *feature
 		WriteTimeout:      cfg.HTTP.WriteTimeout,
 		IdleTimeout:       cfg.HTTP.IdleTimeout,
 		MaxBodyBytes:      cfg.HTTP.MaxBodyBytes,
-	}, httpAPI{itemHTTP: item.NewHTTPHandler(f.items)}, ready, enforcer, policies, log)
+	}, httpAPI{
+		itemHTTP:  item.NewHTTPHandler(f.items),
+		orderHTTP: order.NewHTTPHandler(f.orders),
+	}, ready, enforcer, policies, log)
 	if err != nil {
 		return nil, fmt.Errorf("http: %w", err)
 	}
@@ -80,6 +88,7 @@ func wireServers(ctx context.Context, cfg config.Config, p *platform, f *feature
 
 	grpcSrv, err := grpcserver.New(grpcserver.Options{Reflection: cfg.GRPC.Reflection}, []grpcserver.Registration{
 		item.NewGRPCServer(f.items).Register,
+		order.NewGRPCServer(f.orders).Register,
 	}, enforcer, policies, log)
 	if err != nil {
 		return nil, fmt.Errorf("grpc: %w", err)

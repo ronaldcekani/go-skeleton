@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 
 	"github.com/example/go-skeleton/internal/domain"
 	"github.com/example/go-skeleton/internal/feature/item"
@@ -30,7 +31,13 @@ func openTestDB(t *testing.T) *sqlx.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	provider, err := goose.NewProvider(goose.DialectPostgres, db.DB, migrations.FS)
+	// The lock makes the test packages, which run in parallel against the
+	// same database, migrate one at a time.
+	locker, err := lock.NewPostgresSessionLocker()
+	if err != nil {
+		t.Fatalf("migration lock: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectPostgres, db.DB, migrations.FS, goose.WithSessionLocker(locker))
 	if err != nil {
 		t.Fatalf("migration provider: %v", err)
 	}

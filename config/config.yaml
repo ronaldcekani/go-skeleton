@@ -91,6 +91,14 @@ endpoints:
       http: [createItem, updateItem, deleteItem]
       grpc: [item.v1.ItemService/CreateItem, item.v1.ItemService/UpdateItem, item.v1.ItemService/DeleteItem]
       rate_limit: { requests: 20, period: 1m, burst: 5 }
+    - name: read-orders
+      http: [getOrder]
+      grpc: [order.v1.OrderService/GetOrder]
+      rate_limit: { requests: 120, period: 1m }
+    - name: write-orders
+      http: [createOrder]
+      grpc: [order.v1.OrderService/CreateOrder]
+      rate_limit: { requests: 20, period: 1m, burst: 5 }
 
 shutdown:
   timeout: 20s
