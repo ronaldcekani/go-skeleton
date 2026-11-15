@@ -1,6 +1,8 @@
 // Package httpserver is the HTTP transport. Routing, request decoding and
-// response encoding come from code generated out of api/openapi/openapi.yaml;
-// this package adapts the generated interface to the service layer.
+// response encoding come from code generated out of api/openapi/openapi.yaml.
+// This package adds what every endpoint shares (validation, authentication,
+// rate limiting, error translation, logging); the operations themselves are
+// implemented by the features.
 package httpserver
 
 import (
@@ -43,8 +45,9 @@ const DefaultMaxBodyBytes = 1 << 20
 // ReadinessCheck reports whether the app can serve traffic right now.
 type ReadinessCheck func(ctx context.Context) error
 
-// New builds the HTTP server. The caller owns its lifecycle (Serve/Shutdown).
-func New(opts Options, items ItemService, ready ReadinessCheck, enforcer *policy.Enforcer, policies policy.Table, log *slog.Logger) (*http.Server, error) {
+// New builds the HTTP server around api, the implementation of every
+// operation in the spec. The caller owns its lifecycle (Serve/Shutdown).
+func New(opts Options, api openapi.StrictServerInterface, ready ReadinessCheck, enforcer *policy.Enforcer, policies policy.Table, log *slog.Logger) (*http.Server, error) {
 	spec, err := openapi.GetSpec()
 	if err != nil {
 		return nil, fmt.Errorf("load embedded openapi spec: %w", err)
@@ -79,7 +82,7 @@ func New(opts Options, items ItemService, ready ReadinessCheck, enforcer *policy
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	strict := openapi.NewStrictHandlerWithOptions(&handler{items: items}, nil, openapi.StrictHTTPServerOptions{
+	strict := openapi.NewStrictHandlerWithOptions(api, nil, openapi.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc:  writeInvalidRequest,
 		ResponseErrorHandlerFunc: writeError(log),
 	})

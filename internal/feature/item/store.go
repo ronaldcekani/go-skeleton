@@ -1,6 +1,4 @@
-// Package repository is the data access layer: Postgres for storage and Redis
-// for caching. It contains no business rules.
-package repository
+package item
 
 import (
 	"context"
@@ -17,20 +15,22 @@ import (
 	"github.com/example/go-skeleton/internal/platform/postgres"
 )
 
-// ItemRepository persists items in Postgres. Every query goes through
-// postgres.Conn, so calls made inside Transactor.WithinTx join that
-// transaction.
-type ItemRepository struct {
+// PostgresStore persists items in Postgres. It contains no business rules.
+// Every query goes through postgres.Conn, so calls made inside
+// Transactor.WithinTx join that transaction.
+type PostgresStore struct {
 	db *sqlx.DB
 }
 
-func NewItemRepository(db *sqlx.DB) *ItemRepository {
-	return &ItemRepository{db: db}
+func NewPostgresStore(db *sqlx.DB) *PostgresStore {
+	return &PostgresStore{db: db}
 }
 
 const itemColumns = `id, name, description, created_at, updated_at`
 
-// itemRow is one row of the items table.
+// itemRow is one row of the items table. It is unexported, like every storage
+// and wire type of the feature: the schema can change without anything
+// outside this file noticing.
 type itemRow struct {
 	ID          uuid.UUID `db:"id"`
 	Name        string    `db:"name"`
@@ -39,8 +39,8 @@ type itemRow struct {
 	UpdatedAt   time.Time `db:"updated_at"`
 }
 
-func (r itemRow) toDomain() domain.Item {
-	return domain.Item{
+func (r itemRow) toItem() Item {
+	return Item{
 		ID:          r.ID,
 		Name:        r.Name,
 		Description: r.Description,
@@ -49,15 +49,15 @@ func (r itemRow) toDomain() domain.Item {
 	}
 }
 
-func toDomainItems(rows []itemRow) []domain.Item {
-	items := make([]domain.Item, 0, len(rows))
+func toItems(rows []itemRow) []Item {
+	items := make([]Item, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, row.toDomain())
+		items = append(items, row.toItem())
 	}
 	return items
 }
 
-func (r *ItemRepository) Create(ctx context.Context, item domain.Item) (domain.Item, error) {
+func (r *PostgresStore) Create(ctx context.Context, item Item) (Item, error) {
 	const q = `
 		INSERT INTO items (id, name, description)
 		VALUES ($1, $2, $3)
@@ -65,26 +65,26 @@ func (r *ItemRepository) Create(ctx context.Context, item domain.Item) (domain.I
 
 	var out itemRow
 	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &out, q, item.ID, item.Name, item.Description); err != nil {
-		return domain.Item{}, fmt.Errorf("insert item: %w", err)
+		return Item{}, fmt.Errorf("insert item: %w", err)
 	}
-	return out.toDomain(), nil
+	return out.toItem(), nil
 }
 
-func (r *ItemRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Item, error) {
+func (r *PostgresStore) GetByID(ctx context.Context, id uuid.UUID) (Item, error) {
 	const q = `SELECT ` + itemColumns + ` FROM items WHERE id = $1`
 
 	var out itemRow
 	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &out, q, id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.Item{}, domain.NotFound("item not found")
+			return Item{}, domain.NotFound("item not found")
 		}
-		return domain.Item{}, fmt.Errorf("select item: %w", err)
+		return Item{}, fmt.Errorf("select item: %w", err)
 	}
-	return out.toDomain(), nil
+	return out.toItem(), nil
 }
 
 // List returns one page of items, newest first, and the total row count.
-func (r *ItemRepository) List(ctx context.Context, limit, offset int) ([]domain.Item, int64, error) {
+func (r *PostgresStore) List(ctx context.Context, limit, offset int) ([]Item, int64, error) {
 	const q = `
 		SELECT ` + itemColumns + `
 		FROM items
@@ -99,11 +99,11 @@ func (r *ItemRepository) List(ctx context.Context, limit, offset int) ([]domain.
 	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &total, `SELECT count(*) FROM items`); err != nil {
 		return nil, 0, fmt.Errorf("count items: %w", err)
 	}
-	return toDomainItems(rows), total, nil
+	return toItems(rows), total, nil
 }
 
 // Update sets the non-nil fields of in and bumps updated_at.
-func (r *ItemRepository) Update(ctx context.Context, id uuid.UUID, in domain.UpdateItemInput) (domain.Item, error) {
+func (r *PostgresStore) Update(ctx context.Context, id uuid.UUID, in UpdateInput) (Item, error) {
 	const q = `
 		UPDATE items
 		SET name = COALESCE($2, name),
@@ -115,18 +115,18 @@ func (r *ItemRepository) Update(ctx context.Context, id uuid.UUID, in domain.Upd
 	var out itemRow
 	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &out, q, id, in.Name, in.Description); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.Item{}, domain.NotFound("item not found")
+			return Item{}, domain.NotFound("item not found")
 		}
-		return domain.Item{}, fmt.Errorf("update item: %w", err)
+		return Item{}, fmt.Errorf("update item: %w", err)
 	}
-	return out.toDomain(), nil
+	return out.toItem(), nil
 }
 
 // Search returns one page of the items whose name or description contains
 // query (case-insensitive), newest first, and the total number of matches.
 // This is a sequential scan; add a pg_trgm index or full-text search when
 // the table grows.
-func (r *ItemRepository) Search(ctx context.Context, query string, limit, offset int) ([]domain.Item, int64, error) {
+func (r *PostgresStore) Search(ctx context.Context, query string, limit, offset int) ([]Item, int64, error) {
 	const where = ` FROM items WHERE name ILIKE $1 OR description ILIKE $1`
 	const q = `SELECT ` + itemColumns + where + `
 		ORDER BY created_at DESC, id DESC
@@ -141,14 +141,14 @@ func (r *ItemRepository) Search(ctx context.Context, query string, limit, offset
 	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &total, `SELECT count(*)`+where, pattern); err != nil {
 		return nil, 0, fmt.Errorf("count search results: %w", err)
 	}
-	return toDomainItems(rows), total, nil
+	return toItems(rows), total, nil
 }
 
 // likeEscaper makes LIKE wildcards in user input match literally ("\" is
 // the default escape character in Postgres).
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
-func (r *ItemRepository) Delete(ctx context.Context, id uuid.UUID) error {
+func (r *PostgresStore) Delete(ctx context.Context, id uuid.UUID) error {
 	res, err := postgres.Conn(ctx, r.db).ExecContext(ctx, `DELETE FROM items WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("delete item: %w", err)

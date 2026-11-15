@@ -32,7 +32,7 @@ func openTestDB(t *testing.T) *sqlx.DB {
 	return db
 }
 
-// insert stands in for a repository method.
+// insert stands in for a store method.
 func insert(ctx context.Context, db *sqlx.DB, name string) error {
 	_, err := postgres.Conn(ctx, db).ExecContext(ctx, `INSERT INTO tx_test (name) VALUES ($1)`, name)
 	return err

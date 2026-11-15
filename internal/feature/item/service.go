@@ -1,7 +1,4 @@
-// Package service is the business layer. It is transport-agnostic: the HTTP
-// and gRPC servers both call it, and it reaches storage, cache and messaging
-// only through the interfaces declared here.
-package service
+package item
 
 import (
 	"context"
@@ -15,37 +12,41 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
-
-	"github.com/example/go-skeleton/internal/domain"
 )
 
-const instrumentationName = "github.com/example/go-skeleton/internal/service"
+const instrumentationName = "github.com/example/go-skeleton/internal/feature/item"
 
-type ItemStore interface {
-	Create(ctx context.Context, item domain.Item) (domain.Item, error)
-	GetByID(ctx context.Context, id uuid.UUID) (domain.Item, error)
-	List(ctx context.Context, limit, offset int) ([]domain.Item, int64, error)
-	Update(ctx context.Context, id uuid.UUID, in domain.UpdateItemInput) (domain.Item, error)
-	Search(ctx context.Context, query string, limit, offset int) ([]domain.Item, int64, error)
+// Store, Cache and EventPublisher are what the service needs from the outside
+// world. They are declared here, by the consumer, in the feature's own types:
+// the service has no knowledge of SQL, Redis or Kafka and is unit-tested with
+// fakes.
+type Store interface {
+	Create(ctx context.Context, item Item) (Item, error)
+	GetByID(ctx context.Context, id uuid.UUID) (Item, error)
+	List(ctx context.Context, limit, offset int) ([]Item, int64, error)
+	Update(ctx context.Context, id uuid.UUID, in UpdateInput) (Item, error)
+	Search(ctx context.Context, query string, limit, offset int) ([]Item, int64, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
-type ItemCache interface {
-	Get(ctx context.Context, id uuid.UUID) (item domain.Item, found bool, err error)
+type Cache interface {
+	Get(ctx context.Context, id uuid.UUID) (item Item, found bool, err error)
 	// Set caches the item unless it was invalidated moments ago: a read
 	// that raced with a write must not put the old version back.
-	Set(ctx context.Context, item domain.Item) error
+	Set(ctx context.Context, item Item) error
 	// Invalidate drops the item after it was changed or deleted.
 	Invalidate(ctx context.Context, id uuid.UUID) error
 }
 
 type EventPublisher interface {
-	PublishItemCreated(ctx context.Context, item domain.Item) error
+	PublishCreated(ctx context.Context, item Item) error
 }
 
-type ItemService struct {
-	store     ItemStore
-	cache     ItemCache
+// Service holds the item use cases. It is transport-agnostic: the HTTP and
+// gRPC handlers both call it.
+type Service struct {
+	store     Store
+	cache     Cache
 	publisher EventPublisher
 	log       *slog.Logger
 	tracer    trace.Tracer
@@ -54,7 +55,7 @@ type ItemService struct {
 	cacheHits metric.Int64Counter
 }
 
-func NewItemService(store ItemStore, cache ItemCache, publisher EventPublisher, log *slog.Logger) (*ItemService, error) {
+func NewService(store Store, cache Cache, publisher EventPublisher, log *slog.Logger) (*Service, error) {
 	meter := otel.Meter(instrumentationName)
 	created, err := meter.Int64Counter("items.created",
 		metric.WithDescription("Number of items created"))
@@ -66,7 +67,7 @@ func NewItemService(store ItemStore, cache ItemCache, publisher EventPublisher, 
 	if err != nil {
 		return nil, fmt.Errorf("create items.cache.lookups counter: %w", err)
 	}
-	return &ItemService{
+	return &Service{
 		store:     store,
 		cache:     cache,
 		publisher: publisher,
@@ -77,22 +78,22 @@ func NewItemService(store ItemStore, cache ItemCache, publisher EventPublisher, 
 	}, nil
 }
 
-func (s *ItemService) Create(ctx context.Context, in domain.CreateItemInput) (_ domain.Item, err error) {
-	ctx, span := s.tracer.Start(ctx, "ItemService.Create")
+func (s *Service) Create(ctx context.Context, in CreateInput) (_ Item, err error) {
+	ctx, span := s.tracer.Start(ctx, "item.Service.Create")
 	defer func() { endSpan(span, err) }()
 
 	in.Name = strings.TrimSpace(in.Name)
 	if err := in.Validate(); err != nil {
-		return domain.Item{}, err
+		return Item{}, err
 	}
 
 	id, err := uuid.NewV7()
 	if err != nil {
-		return domain.Item{}, fmt.Errorf("generate item id: %w", err)
+		return Item{}, fmt.Errorf("generate item id: %w", err)
 	}
-	item, err := s.store.Create(ctx, domain.Item{ID: id, Name: in.Name, Description: in.Description})
+	item, err := s.store.Create(ctx, Item{ID: id, Name: in.Name, Description: in.Description})
 	if err != nil {
-		return domain.Item{}, err
+		return Item{}, err
 	}
 	span.SetAttributes(attribute.String("item.id", item.ID.String()))
 	s.created.Add(ctx, 1)
@@ -100,7 +101,7 @@ func (s *ItemService) Create(ctx context.Context, in domain.CreateItemInput) (_ 
 	// Publishing does not wait for the broker, and the item is already
 	// committed, so a failed publish must not fail the request. If events
 	// must never be lost, replace this with a transactional outbox.
-	if err := s.publisher.PublishItemCreated(ctx, item); err != nil {
+	if err := s.publisher.PublishCreated(ctx, item); err != nil {
 		s.log.ErrorContext(ctx, "publish item created event failed",
 			slog.String("item_id", item.ID.String()), slog.Any("error", err))
 	}
@@ -109,8 +110,8 @@ func (s *ItemService) Create(ctx context.Context, in domain.CreateItemInput) (_ 
 
 // Get reads through the cache: on a miss the item is loaded from the store
 // and cached. Cache failures degrade to store reads instead of failing.
-func (s *ItemService) Get(ctx context.Context, id uuid.UUID) (_ domain.Item, err error) {
-	ctx, span := s.tracer.Start(ctx, "ItemService.Get",
+func (s *Service) Get(ctx context.Context, id uuid.UUID) (_ Item, err error) {
+	ctx, span := s.tracer.Start(ctx, "item.Service.Get",
 		trace.WithAttributes(attribute.String("item.id", id.String())))
 	defer func() { endSpan(span, err) }()
 
@@ -126,7 +127,7 @@ func (s *ItemService) Get(ctx context.Context, id uuid.UUID) (_ domain.Item, err
 
 	item, err = s.store.GetByID(ctx, id)
 	if err != nil {
-		return domain.Item{}, err
+		return Item{}, err
 	}
 	if err := s.cache.Set(ctx, item); err != nil {
 		s.log.WarnContext(ctx, "item cache write failed", slog.Any("error", err))
@@ -135,23 +136,23 @@ func (s *ItemService) Get(ctx context.Context, id uuid.UUID) (_ domain.Item, err
 }
 
 // List returns one page of items and the total number of items.
-func (s *ItemService) List(ctx context.Context, in domain.ListItemsInput) (_ []domain.Item, _ int64, err error) {
-	ctx, span := s.tracer.Start(ctx, "ItemService.List")
+func (s *Service) List(ctx context.Context, in ListInput) (_ []Item, _ int64, err error) {
+	ctx, span := s.tracer.Start(ctx, "item.Service.List")
 	defer func() { endSpan(span, err) }()
 
 	if err := in.Validate(); err != nil {
 		return nil, 0, err
 	}
 	if in.Limit == 0 {
-		in.Limit = domain.DefaultPageSize
+		in.Limit = DefaultPageSize
 	}
 	return s.store.List(ctx, in.Limit, in.Offset)
 }
 
 // Update changes the given fields of an item and drops its cache entry, so
 // the next Get reads the new version.
-func (s *ItemService) Update(ctx context.Context, id uuid.UUID, in domain.UpdateItemInput) (_ domain.Item, err error) {
-	ctx, span := s.tracer.Start(ctx, "ItemService.Update",
+func (s *Service) Update(ctx context.Context, id uuid.UUID, in UpdateInput) (_ Item, err error) {
+	ctx, span := s.tracer.Start(ctx, "item.Service.Update",
 		trace.WithAttributes(attribute.String("item.id", id.String())))
 	defer func() { endSpan(span, err) }()
 
@@ -160,12 +161,12 @@ func (s *ItemService) Update(ctx context.Context, id uuid.UUID, in domain.Update
 		in.Name = &name
 	}
 	if err := in.Validate(); err != nil {
-		return domain.Item{}, err
+		return Item{}, err
 	}
 
 	item, err := s.store.Update(ctx, id, in)
 	if err != nil {
-		return domain.Item{}, err
+		return Item{}, err
 	}
 	if err := s.cache.Invalidate(ctx, id); err != nil {
 		s.log.WarnContext(ctx, "item cache invalidation failed", slog.Any("error", err))
@@ -174,8 +175,8 @@ func (s *ItemService) Update(ctx context.Context, id uuid.UUID, in domain.Update
 }
 
 // Search returns one page of matching items and the total number of matches.
-func (s *ItemService) Search(ctx context.Context, in domain.SearchItemsInput) (_ []domain.Item, _ int64, err error) {
-	ctx, span := s.tracer.Start(ctx, "ItemService.Search")
+func (s *Service) Search(ctx context.Context, in SearchInput) (_ []Item, _ int64, err error) {
+	ctx, span := s.tracer.Start(ctx, "item.Service.Search")
 	defer func() { endSpan(span, err) }()
 
 	in.Query = strings.TrimSpace(in.Query)
@@ -183,13 +184,13 @@ func (s *ItemService) Search(ctx context.Context, in domain.SearchItemsInput) (_
 		return nil, 0, err
 	}
 	if in.Limit == 0 {
-		in.Limit = domain.DefaultPageSize
+		in.Limit = DefaultPageSize
 	}
 	return s.store.Search(ctx, in.Query, in.Limit, in.Offset)
 }
 
-func (s *ItemService) Delete(ctx context.Context, id uuid.UUID) (err error) {
-	ctx, span := s.tracer.Start(ctx, "ItemService.Delete",
+func (s *Service) Delete(ctx context.Context, id uuid.UUID) (err error) {
+	ctx, span := s.tracer.Start(ctx, "item.Service.Delete",
 		trace.WithAttributes(attribute.String("item.id", id.String())))
 	defer func() { endSpan(span, err) }()
 

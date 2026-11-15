@@ -10,6 +10,9 @@ import (
 	"strconv"
 
 	"github.com/example/go-skeleton/internal/config"
+	"github.com/example/go-skeleton/internal/feature/item"
+	"github.com/example/go-skeleton/internal/feature/order"
+	openapi "github.com/example/go-skeleton/internal/gen/openapi"
 	"github.com/example/go-skeleton/internal/platform/ratelimit"
 	"github.com/example/go-skeleton/internal/server/grpcserver"
 	"github.com/example/go-skeleton/internal/server/httpserver"
@@ -21,10 +24,29 @@ type servers struct {
 	onReady    []func(ready bool)
 }
 
+// httpAPI joins the HTTP handlers of all features into the one interface
+// generated from the OpenAPI spec. To add a feature, embed its handler: the
+// build fails while an operation of the spec has no implementation, or when
+// two features implement the same one.
+//
+// The aliases only give each embedded field a name of its own; without them
+// every field would be called HTTPHandler.
+type httpAPI struct {
+	*itemHTTP
+	*orderHTTP
+}
+
+type (
+	itemHTTP  = item.HTTPHandler
+	orderHTTP = order.HTTPHandler
+)
+
+var _ openapi.StrictServerInterface = httpAPI{}
+
 // wireServers builds the HTTP and gRPC servers and binds their ports, so a
 // port conflict fails the build instead of surfacing after the app reported
 // ready.
-func wireServers(ctx context.Context, cfg config.Config, p *platform, svc *services, appReady func() bool, log *slog.Logger, cleanup *cleanupStack) (*servers, error) {
+func wireServers(ctx context.Context, cfg config.Config, p *platform, f *features, appReady func() bool, log *slog.Logger, cleanup *cleanupStack) (*servers, error) {
 	policies, enforcer, err := wirePolicy(cfg, p, log)
 	if err != nil {
 		return nil, err
@@ -52,7 +74,10 @@ func wireServers(ctx context.Context, cfg config.Config, p *platform, svc *servi
 		WriteTimeout:      cfg.HTTP.WriteTimeout,
 		IdleTimeout:       cfg.HTTP.IdleTimeout,
 		MaxBodyBytes:      cfg.HTTP.MaxBodyBytes,
-	}, svc.items, ready, enforcer, policies, log)
+	}, httpAPI{
+		itemHTTP:  item.NewHTTPHandler(f.items),
+		orderHTTP: order.NewHTTPHandler(f.orders),
+	}, ready, enforcer, policies, log)
 	if err != nil {
 		return nil, fmt.Errorf("http: %w", err)
 	}
@@ -61,7 +86,10 @@ func wireServers(ctx context.Context, cfg config.Config, p *platform, svc *servi
 		return nil, err
 	}
 
-	grpcSrv, err := grpcserver.New(grpcserver.Options{Reflection: cfg.GRPC.Reflection}, svc.items, enforcer, policies, log)
+	grpcSrv, err := grpcserver.New(grpcserver.Options{Reflection: cfg.GRPC.Reflection}, []grpcserver.Registration{
+		item.NewGRPCServer(f.items).Register,
+		order.NewGRPCServer(f.orders).Register,
+	}, enforcer, policies, log)
 	if err != nil {
 		return nil, fmt.Errorf("grpc: %w", err)
 	}

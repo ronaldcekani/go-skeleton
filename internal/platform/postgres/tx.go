@@ -50,7 +50,7 @@ func (t *Transactor) WithinTx(ctx context.Context, fn func(ctx context.Context) 
 }
 
 // WithinTxOptions runs fn in a transaction. The context passed to fn carries
-// the transaction, and every repository call made with it takes part. The
+// the transaction, and every store call made with it takes part. The
 // transaction is committed if fn returns nil, and rolled back if fn returns
 // an error or panics, or if ctx is cancelled.
 //

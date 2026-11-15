@@ -1,3 +1,10 @@
+// Package domain is the shared kernel: the few types every feature and both
+// transports have to agree on, which are the error kinds and the
+// authenticated caller. It depends on nothing else in the application.
+//
+// Entities and their rules do not belong here; they live in the feature that
+// owns them (internal/feature/<name>). Add a type to this package only if
+// every feature would otherwise define it identically.
 package domain
 
 import (

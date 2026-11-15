@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package order.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/example/go-skeleton/internal/gen/proto/order/v1;orderv1";
+
+// OrderService creates and reads orders.
+service OrderService {
+  // CreateOrder prices the lines for the customer and stores the result.
+  rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
+  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
+}
+
+// Amounts are in minor units (cents) of the order currency.
+message Order {
+  string id = 1;
+  string customer_id = 2;
+  // ISO 4217 code.
+  string currency = 3;
+  repeated OrderLine lines = 4;
+  // Sum of the line amounts.
+  int64 total_amount = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message OrderLine {
+  string item_id = 1;
+  int32 quantity = 2;
+  // Price of one unit, before discount.
+  int64 unit_amount = 3;
+  // Discount applied to the line; 100 basis points are 1%.
+  int32 discount_basis_points = 4;
+  // What the line costs after the discount.
+  int64 amount = 5;
+}
+
+message CreateOrderRequest {
+  string customer_id = 1;
+  // ISO 4217 code the order is priced in.
+  string currency = 2;
+  repeated CreateOrderLine lines = 3;
+}
+
+message CreateOrderLine {
+  string item_id = 1;
+  int32 quantity = 2;
+}
+
+message CreateOrderResponse {
+  Order order = 1;
+}
+
+message GetOrderRequest {
+  string id = 1;
+}
+
+message GetOrderResponse {
+  Order order = 1;
+}

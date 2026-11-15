@@ -1,5 +1,7 @@
 // Package grpcserver is the gRPC transport. Service stubs come from code
-// generated out of api/proto; this package adapts them to the service layer.
+// generated out of api/proto. This package adds what every method shares
+// (authentication, rate limiting, error translation, logging, health); the
+// services themselves are implemented by the features.
 package grpcserver
 
 import (
@@ -23,7 +25,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/example/go-skeleton/internal/domain"
-	itemv1 "github.com/example/go-skeleton/internal/gen/proto/item/v1"
 	"github.com/example/go-skeleton/internal/server/policy"
 )
 
@@ -36,10 +37,16 @@ type Options struct {
 type Server struct {
 	*grpc.Server
 	Health *health.Server
+
+	services []string // the application's own services, by full name
 }
 
-// New builds the gRPC server. The caller owns its lifecycle (Serve/GracefulStop).
-func New(opts Options, items ItemService, enforcer *policy.Enforcer, policies policy.Table, log *slog.Logger) (*Server, error) {
+// Registration adds one feature's service to the server.
+type Registration func(grpc.ServiceRegistrar)
+
+// New builds the gRPC server and registers the given services on it. The
+// caller owns its lifecycle (Serve/GracefulStop).
+func New(opts Options, services []Registration, enforcer *policy.Enforcer, policies policy.Table, log *slog.Logger) (*Server, error) {
 	srv := grpc.NewServer(
 		// Traces and metrics for every RPC except health checks.
 		grpc.StatsHandler(otelgrpc.NewServerHandler(
@@ -65,11 +72,15 @@ func New(opts Options, items ItemService, enforcer *policy.Enforcer, policies po
 		),
 	)
 
-	itemv1.RegisterItemServiceServer(srv, &itemServer{items: items})
+	for _, register := range services {
+		register(srv)
+	}
 
-	// Rules may only name methods of the application's own services.
-	var methods []string
+	// Rules may only name methods of the application's own services, which
+	// are the only ones registered so far.
+	var names, methods []string
 	for service, info := range srv.GetServiceInfo() {
+		names = append(names, service)
 		for _, m := range info.Methods {
 			methods = append(methods, service+"/"+m.Name)
 		}
@@ -86,7 +97,7 @@ func New(opts Options, items ItemService, enforcer *policy.Enforcer, policies po
 	if opts.Reflection {
 		reflection.Register(srv)
 	}
-	return &Server{Server: srv, Health: healthSrv}, nil
+	return &Server{Server: srv, Health: healthSrv, services: names}, nil
 }
 
 // SetServing switches the health status of the whole server and of each
@@ -97,7 +108,9 @@ func (s *Server) SetServing(serving bool) {
 		status = healthpb.HealthCheckResponse_SERVING
 	}
 	s.Health.SetServingStatus("", status)
-	s.Health.SetServingStatus(itemv1.ItemService_ServiceDesc.ServiceName, status)
+	for _, name := range s.services {
+		s.Health.SetServingStatus(name, status)
+	}
 }
 
 // isInfrastructure reports whether the method belongs to the health or
