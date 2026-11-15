@@ -118,7 +118,7 @@ func New(opts Options, items ItemService, ready ReadinessCheck, enforcer *policy
 		ErrorHandlerFunc: writeInvalidRequest,
 	})
 
-	var h http.Handler = mux
+	var h http.Handler = jsonRoutingErrors(mux)
 	h = recoverer(log)(h)
 	h = accessLog(log)(h)
 	h = otelhttp.NewHandler(h, "http.server",
