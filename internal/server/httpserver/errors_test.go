@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/example/go-skeleton/internal/domain"
-	"github.com/example/go-skeleton/internal/gen/openapi"
+	openapi "github.com/example/go-skeleton/internal/gen/openapi"
 )
 
 func TestWriteError(t *testing.T) {

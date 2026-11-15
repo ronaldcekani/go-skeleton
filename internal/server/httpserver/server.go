@@ -20,7 +20,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/example/go-skeleton/internal/domain"
-	"github.com/example/go-skeleton/internal/gen/openapi"
+	openapi "github.com/example/go-skeleton/internal/gen/openapi"
 	"github.com/example/go-skeleton/internal/server/policy"
 )
 
