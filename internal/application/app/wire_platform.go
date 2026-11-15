@@ -30,15 +30,29 @@ type platform struct {
 // wirePlatform connects to the infrastructure. Telemetry comes first so it is
 // closed last and exports what the rest of the shutdown produces.
 func wirePlatform(ctx context.Context, cfg config.Config, log *slog.Logger, cleanup *cleanupStack) (*platform, error) {
+	t := cfg.Telemetry
 	shutdownTelemetry, err := telemetry.Setup(ctx, telemetry.Options{
-		Enabled:        cfg.Telemetry.Enabled,
 		ServiceName:    cfg.Service.Name,
 		ServiceVersion: cfg.Service.Version,
 		Environment:    cfg.Service.Environment,
-		OTLPEndpoint:   cfg.Telemetry.OTLPEndpoint,
-		OTLPInsecure:   cfg.Telemetry.OTLPInsecure,
-		TraceSampling:  cfg.Telemetry.TraceSampling,
-		MetricInterval: cfg.Telemetry.MetricInterval,
+		Tracing: telemetry.Signal{
+			Enabled:     t.TracingEnabled,
+			EndpointURL: t.TracingEndpointURL,
+			Protocol:    t.TracingProtocol,
+		},
+		TraceSampling: t.TraceSampling,
+		Metrics: telemetry.Signal{
+			Enabled:     t.MetricsEnabled,
+			EndpointURL: t.MetricsEndpointURL,
+			Protocol:    t.MetricsProtocol,
+		},
+		MetricInterval: t.MetricInterval,
+		Logging: telemetry.Signal{
+			Enabled:     t.LoggingEnabled,
+			EndpointURL: t.LoggingEndpointURL,
+			Protocol:    t.LoggingProtocol,
+		},
+		InstanaKey: t.InstanaKey,
 	}, log)
 	if err != nil {
 		return nil, err

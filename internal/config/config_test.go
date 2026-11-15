@@ -67,6 +67,38 @@ func TestLoadRejectsInvalid(t *testing.T) {
 	})
 }
 
+func TestTelemetryValidate(t *testing.T) {
+	valid := Default().Telemetry
+	tests := []struct {
+		name    string
+		mutate  func(*Telemetry)
+		wantErr bool
+	}{
+		{name: "defaults", mutate: func(*Telemetry) {}},
+		{name: "protocol is case-insensitive", mutate: func(t *Telemetry) { t.MetricsProtocol = "gRPC" }},
+		{name: "unknown protocol", mutate: func(t *Telemetry) { t.LoggingProtocol = "udp" }, wantErr: true},
+		{name: "missing endpoint", mutate: func(t *Telemetry) { t.TracingEndpointURL = "" }, wantErr: true},
+		{name: "bad sampling", mutate: func(t *Telemetry) { t.TraceSampling = 1.5 }, wantErr: true},
+		{name: "bad metric interval", mutate: func(t *Telemetry) { t.MetricInterval = 0 }, wantErr: true},
+		{
+			name: "disabled signals are not checked",
+			mutate: func(t *Telemetry) {
+				*t = Telemetry{TracingProtocol: "udp", MetricsProtocol: "udp", LoggingProtocol: "udp"}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := valid
+			tt.mutate(&cfg)
+			err := cfg.validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validate() error = %v, want error: %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestLoadEndpointRules(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	yaml := `

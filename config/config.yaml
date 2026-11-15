@@ -44,12 +44,24 @@ kafka:
   items_topic: items.events
   consumer_group: go-skeleton
 
+# OTLP export, configured per signal. Protocol: grpc | http. The URL scheme
+# selects TLS (http:// plain, https:// TLS); for http a URL without a path
+# gets /v1/traces, /v1/metrics or /v1/logs appended.
+# Instana agent: grpc on :4317, http on :4318, no key needed. Instana backend
+# directly: set instana_key (better: APP_TELEMETRY__INSTANA_KEY).
 telemetry:
-  enabled: true
-  otlp_endpoint: localhost:4317
-  otlp_insecure: true
+  tracing_enabled: true
+  tracing_endpoint_url: http://localhost:4317
+  tracing_protocol: grpc
   trace_sampling: 1.0
+  metrics_enabled: true
+  metrics_endpoint_url: http://localhost:4318
+  metrics_protocol: http
   metric_interval: 15s
+  logging_enabled: true
+  logging_endpoint_url: http://localhost:4317
+  logging_protocol: grpc
+  instana_key: ""
 
 # Keycloak access token verification. Tokens are verified locally against
 # the realm's signing keys, which are fetched and refreshed in the background.

@@ -48,13 +48,14 @@ services:
       timeout: 10s
       retries: 10
 
-  # OpenTelemetry collector + Tempo (traces) + Prometheus (metrics) + Grafana
-  # in one container. Grafana: http://localhost:3000
+  # OpenTelemetry collector + Tempo (traces) + Prometheus (metrics) + Loki
+  # (logs) + Grafana in one container. Grafana: http://localhost:3000
   otel:
     image: grafana/otel-lgtm:latest
     ports:
       - "3000:3000" # Grafana
       - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
 
   # Keycloak with a ready-made "skeleton" realm: public client skeleton-cli,
   # user demo / demo. Admin console: http://localhost:8081 (admin / admin).
@@ -77,7 +78,9 @@ services:
     command: ["--mode=migration"]
     environment:
       APP_POSTGRES__DSN: postgres://postgres:postgres@postgres:5432/skeleton?sslmode=disable
-      APP_TELEMETRY__ENABLED: "false"
+      APP_TELEMETRY__TRACING_ENABLED: "false"
+      APP_TELEMETRY__METRICS_ENABLED: "false"
+      APP_TELEMETRY__LOGGING_ENABLED: "false"
     depends_on:
       postgres: { condition: service_healthy }
 
@@ -90,7 +93,9 @@ services:
       APP_POSTGRES__DSN: postgres://postgres:postgres@postgres:5432/skeleton?sslmode=disable
       APP_REDIS__ADDR: redis:6379
       APP_KAFKA__BROKERS: kafka:29092
-      APP_TELEMETRY__OTLP_ENDPOINT: otel:4317
+      APP_TELEMETRY__TRACING_ENDPOINT_URL: http://otel:4317
+      APP_TELEMETRY__METRICS_ENDPOINT_URL: http://otel:4318
+      APP_TELEMETRY__LOGGING_ENDPOINT_URL: http://otel:4317
       # Tokens carry the localhost issuer; the keys are fetched over the
       # compose network.
       APP_AUTH__ISSUER: http://localhost:8081/realms/skeleton

@@ -51,6 +51,7 @@ type Service struct {
 	Name        string `koanf:"name"`
 	Version     string `koanf:"version"`
 	Environment string `koanf:"environment"`
+	Domain      string `koanf:"domain"` // The application domain of the service; ex: sales
 }
 
 type Log struct {
@@ -97,12 +98,55 @@ type Kafka struct {
 	ConsumerGroup string   `koanf:"consumer_group"`
 }
 
+// Telemetry configures the OTLP export of each signal separately, so traces,
+// metrics and logs can go to different endpoints over different protocols.
+// Endpoint URLs carry the scheme: "http://" sends without TLS, "https://"
+// with it. For the http protocol a URL without a path gets the standard
+// signal path (/v1/traces, /v1/metrics, /v1/logs) appended.
 type Telemetry struct {
-	Enabled        bool          `koanf:"enabled"`
-	OTLPEndpoint   string        `koanf:"otlp_endpoint"` // host:port of an OTLP/gRPC collector
-	OTLPInsecure   bool          `koanf:"otlp_insecure"`
-	TraceSampling  float64       `koanf:"trace_sampling"` // 0..1, parent-based ratio
-	MetricInterval time.Duration `koanf:"metric_interval"`
+	TracingEnabled     bool    `koanf:"tracing_enabled"`
+	TracingEndpointURL string  `koanf:"tracing_endpoint_url"`
+	TracingProtocol    string  `koanf:"tracing_protocol"` // "grpc" (default) or "http"
+	TraceSampling      float64 `koanf:"trace_sampling"`   // 0..1, parent-based ratio
+
+	MetricsEnabled     bool          `koanf:"metrics_enabled"`
+	MetricsEndpointURL string        `koanf:"metrics_endpoint_url"`
+	MetricsProtocol    string        `koanf:"metrics_protocol"` // "http" (default) or "grpc"
+	MetricInterval     time.Duration `koanf:"metric_interval"`
+
+	LoggingEnabled     bool   `koanf:"logging_enabled"`
+	LoggingEndpointURL string `koanf:"logging_endpoint_url"`
+	LoggingProtocol    string `koanf:"logging_protocol"` // "grpc" (default) or "http"
+
+	// InstanaKey is sent as the x-instana-key header on every export. It is
+	// needed when exporting straight to the Instana backend; leave it empty
+	// when exporting through an Instana agent or a collector.
+	InstanaKey string `koanf:"instana_key"`
+}
+
+func (t Telemetry) validate() error {
+	var errs []error
+	signal := func(name string, enabled bool, url, protocol string) {
+		if !enabled {
+			return
+		}
+		if url == "" {
+			errs = append(errs, fmt.Errorf("telemetry.%s_endpoint_url: required when %s is enabled", name, name))
+		}
+		if p := strings.ToLower(protocol); p != "grpc" && p != "http" {
+			errs = append(errs, fmt.Errorf("telemetry.%s_protocol: %q, want grpc or http", name, protocol))
+		}
+	}
+	signal("tracing", t.TracingEnabled, t.TracingEndpointURL, t.TracingProtocol)
+	signal("metrics", t.MetricsEnabled, t.MetricsEndpointURL, t.MetricsProtocol)
+	signal("logging", t.LoggingEnabled, t.LoggingEndpointURL, t.LoggingProtocol)
+	if t.TracingEnabled && (t.TraceSampling < 0 || t.TraceSampling > 1) {
+		errs = append(errs, errors.New("telemetry.trace_sampling: must be between 0 and 1"))
+	}
+	if t.MetricsEnabled && t.MetricInterval <= 0 {
+		errs = append(errs, errors.New("telemetry.metric_interval: must be positive"))
+	}
+	return errors.Join(errs...)
 }
 
 type Migration struct {
@@ -203,11 +247,17 @@ func Default() Config {
 			ConsumerGroup: "go-skeleton",
 		},
 		Telemetry: Telemetry{
-			Enabled:        true,
-			OTLPEndpoint:   "localhost:4317",
-			OTLPInsecure:   true,
-			TraceSampling:  1,
-			MetricInterval: 15 * time.Second,
+			TracingEnabled:     true,
+			TracingEndpointURL: "http://localhost:4317",
+			TracingProtocol:    "grpc",
+			TraceSampling:      1,
+			MetricsEnabled:     true,
+			MetricsEndpointURL: "http://localhost:4318",
+			MetricsProtocol:    "http",
+			MetricInterval:     15 * time.Second,
+			LoggingEnabled:     true,
+			LoggingEndpointURL: "http://localhost:4317",
+			LoggingProtocol:    "grpc",
 		},
 		Migration: Migration{Command: "up"},
 		Auth: Auth{
@@ -359,13 +409,6 @@ func (c Config) Validate() error {
 		}
 		errs = append(errs, c.Endpoints.validate())
 	}
-	if c.Telemetry.Enabled {
-		if c.Telemetry.OTLPEndpoint == "" {
-			errs = append(errs, errors.New("telemetry.otlp_endpoint: required when telemetry is enabled"))
-		}
-		if c.Telemetry.TraceSampling < 0 || c.Telemetry.TraceSampling > 1 {
-			errs = append(errs, errors.New("telemetry.trace_sampling: must be between 0 and 1"))
-		}
-	}
+	errs = append(errs, c.Telemetry.validate())
 	return errors.Join(errs...)
 }

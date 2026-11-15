@@ -17,7 +17,7 @@ graceful shutdown.
 | Rate limiting | Per user (token `sub`), counted in Redis (`redis_rate`)                 |
 | Config        | [koanf]: defaults → YAML file → environment → flags                     |
 | Logging       | `log/slog`, JSON or text, with `trace_id` / `span_id` on every record   |
-| Observability | OpenTelemetry traces + metrics over OTLP/gRPC                           |
+| Observability | OpenTelemetry traces, metrics and logs over OTLP (gRPC or HTTP)         |
 
 [oapi-codegen]: https://github.com/oapi-codegen/oapi-codegen
 [buf]: https://buf.build
@@ -262,7 +262,10 @@ APP_POSTGRES__DSN=postgres://user:pass@db:5432/app?sslmode=require
 APP_KAFKA__BROKERS=kafka-1:9092,kafka-2:9092
 APP_KAFKA__ENABLED=false       # run without Kafka; events are discarded
 APP_AUTH__ENABLED=false        # no tokens needed, nothing is rate limited
-APP_TELEMETRY__ENABLED=false   # run without an OTLP collector
+APP_TELEMETRY__TRACING_ENABLED=false   # each signal can be switched off,
+APP_TELEMETRY__METRICS_ENABLED=false   # e.g. to run without an OTLP collector
+APP_TELEMETRY__LOGGING_ENABLED=false
+APP_TELEMETRY__INSTANA_KEY=...         # export straight to the Instana backend
 ```
 
 The config file itself is optional (`--config` or `APP_CONFIG`); the defaults
@@ -278,7 +281,12 @@ live in `internal/config/config.go`.
   client metrics, Go runtime metrics, plus two example business counters in
   `internal/service`.
 - **Logs**: pass the request context (`log.InfoContext(ctx, ...)`) and the
-  record carries `trace_id` and `span_id`.
+  record carries `trace_id` and `span_id`. Logs are also exported over
+  OTLP when `telemetry.logging_enabled` is set.
+- **Export**: each signal has its own endpoint URL and protocol (`grpc` or
+  `http`). An Instana agent accepts both on `:4317` / `:4318` without a key;
+  exporting to the Instana backend directly needs `telemetry.instana_key`,
+  sent as the `x-instana-key` header.
 - **Probes**: `GET /healthz` (liveness), `GET /readyz` (checks Postgres and
   Redis, fails during shutdown), and the standard gRPC health service.
 

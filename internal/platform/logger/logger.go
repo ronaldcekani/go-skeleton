@@ -1,6 +1,7 @@
 // Package logger builds the application's slog.Logger. Every record logged
 // with a context that carries an active span gets trace_id and span_id
-// attributes, so logs can be correlated with traces.
+// attributes, so logs can be correlated with traces. Records can also be
+// exported over OpenTelemetry, where they carry the span context natively.
 package logger
 
 import (
@@ -10,6 +11,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -19,6 +21,10 @@ type Options struct {
 	Service string
 	Version string
 	Env     string
+	// Export also sends every record to the global OpenTelemetry
+	// LoggerProvider. Until telemetry installs one, records sent there are
+	// dropped.
+	Export bool
 }
 
 // New returns a logger writing to w. It does not install it as the default;
@@ -40,12 +46,19 @@ func New(w io.Writer, opts Options) (*slog.Logger, error) {
 		return nil, fmt.Errorf("log format %q: want json or text", opts.Format)
 	}
 
-	l := slog.New(&traceHandler{Handler: h}).With(
+	// The service attributes are only added to the local output: exported
+	// records carry them as OpenTelemetry resource attributes instead.
+	var out slog.Handler = &traceHandler{Handler: h.WithAttrs([]slog.Attr{
 		slog.String("service", opts.Service),
 		slog.String("version", opts.Version),
 		slog.String("env", opts.Env),
-	)
-	return l, nil
+	})}
+	if opts.Export {
+		// The bridge does not filter by level itself.
+		exported := &levelHandler{Handler: otelslog.NewHandler(opts.Service), level: level}
+		out = slog.NewMultiHandler(out, exported)
+	}
+	return slog.New(out), nil
 }
 
 // traceHandler decorates records with the IDs of the span found in the context.
@@ -69,4 +82,22 @@ func (h *traceHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h *traceHandler) WithGroup(name string) slog.Handler {
 	return &traceHandler{Handler: h.Handler.WithGroup(name)}
+}
+
+// levelHandler drops records below level.
+type levelHandler struct {
+	slog.Handler
+	level slog.Level
+}
+
+func (h *levelHandler) Enabled(ctx context.Context, l slog.Level) bool {
+	return l >= h.level && h.Handler.Enabled(ctx, l)
+}
+
+func (h *levelHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &levelHandler{Handler: h.Handler.WithAttrs(attrs), level: h.level}
+}
+
+func (h *levelHandler) WithGroup(name string) slog.Handler {
+	return &levelHandler{Handler: h.Handler.WithGroup(name), level: h.level}
 }

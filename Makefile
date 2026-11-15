@@ -20,13 +20,13 @@ tools: ## Build the pinned code generators into ./bin
 generate: generate-openapi generate-proto ## Regenerate HTTP and gRPC code
 
 generate-openapi: tools ## Generate the HTTP server from api/openapi/openapi.yaml
-	oapi-codegen -config api/openapi/oapi-codegen.yaml api/openapi/openapi.yaml
+	$(BIN)/oapi-codegen -config oapi-codegen.yaml api/openapi/openapi.yaml
 
 generate-proto: tools ## Generate the gRPC server from api/proto
-	buf generate
+	$(BIN)/buf generate
 
 lint-proto: tools ## Lint the proto files
-	buf lint
+	$(BIN)/buf lint
 
 build: ## Build the binary into ./bin
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o $(BIN)/$(APP) ./cmd/app

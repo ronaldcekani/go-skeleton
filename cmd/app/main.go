@@ -39,6 +39,7 @@ func run() int {
 		Service: cfg.Service.Name,
 		Version: cfg.Service.Version,
 		Env:     cfg.Service.Environment,
+		Export:  cfg.Telemetry.LoggingEnabled,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "logger:", err)
