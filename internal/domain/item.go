@@ -4,10 +4,13 @@ package domain
 
 import (
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
 
+// Length limits are in characters (code points), like maxLength in the
+// OpenAPI spec, not in bytes.
 const (
 	MaxItemNameLen        = 200
 	MaxItemDescriptionLen = 2000
@@ -16,12 +19,15 @@ const (
 	MaxSearchQueryLen     = 200
 )
 
+// Item carries no db or json tags on purpose: the repository, the cache and
+// the event publisher each map it to a format of their own, so renaming a
+// field here cannot silently change a table mapping or a wire contract.
 type Item struct {
-	ID          uuid.UUID `db:"id" json:"id"`
-	Name        string    `db:"name" json:"name"`
-	Description string    `db:"description" json:"description"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	ID          uuid.UUID
+	Name        string
+	Description string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // CreateItemInput is what a caller provides to create an item.
@@ -36,9 +42,9 @@ func (in CreateItemInput) Validate() error {
 	switch {
 	case in.Name == "":
 		return InvalidInput("name is required")
-	case len(in.Name) > MaxItemNameLen:
+	case utf8.RuneCountInString(in.Name) > MaxItemNameLen:
 		return InvalidInput("name must be at most %d characters", MaxItemNameLen)
-	case len(in.Description) > MaxItemDescriptionLen:
+	case utf8.RuneCountInString(in.Description) > MaxItemDescriptionLen:
 		return InvalidInput("description must be at most %d characters", MaxItemDescriptionLen)
 	}
 	return nil
@@ -72,9 +78,9 @@ func (in UpdateItemInput) Validate() error {
 		return InvalidInput("at least one of name or description is required")
 	case in.Name != nil && *in.Name == "":
 		return InvalidInput("name must not be empty")
-	case in.Name != nil && len(*in.Name) > MaxItemNameLen:
+	case in.Name != nil && utf8.RuneCountInString(*in.Name) > MaxItemNameLen:
 		return InvalidInput("name must be at most %d characters", MaxItemNameLen)
-	case in.Description != nil && len(*in.Description) > MaxItemDescriptionLen:
+	case in.Description != nil && utf8.RuneCountInString(*in.Description) > MaxItemDescriptionLen:
 		return InvalidInput("description must be at most %d characters", MaxItemDescriptionLen)
 	}
 	return nil
@@ -92,17 +98,8 @@ func (in SearchItemsInput) Validate() error {
 	switch {
 	case in.Query == "":
 		return InvalidInput("query is required")
-	case len(in.Query) > MaxSearchQueryLen:
+	case utf8.RuneCountInString(in.Query) > MaxSearchQueryLen:
 		return InvalidInput("query must be at most %d characters", MaxSearchQueryLen)
 	}
 	return ListItemsInput{Limit: in.Limit, Offset: in.Offset}.Validate()
 }
-
-// ItemCreatedEvent is published when an item has been created.
-type ItemCreatedEvent struct {
-	Type       string    `json:"type"`
-	OccurredAt time.Time `json:"occurred_at"`
-	Item       Item      `json:"item"`
-}
-
-const EventTypeItemCreated = "item.created"

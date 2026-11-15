@@ -46,6 +46,7 @@ func TestCreateItemInputValidate(t *testing.T) {
 	}{
 		"ok":                   {CreateItemInput{Name: "widget", Description: "a thing"}, true},
 		"max lengths":          {CreateItemInput{Name: strings.Repeat("n", MaxItemNameLen), Description: strings.Repeat("d", MaxItemDescriptionLen)}, true},
+		"max length multibyte": {CreateItemInput{Name: strings.Repeat("й", MaxItemNameLen)}, true}, // characters, not bytes
 		"missing name":         {CreateItemInput{}, false},
 		"name too long":        {CreateItemInput{Name: strings.Repeat("n", MaxItemNameLen+1)}, false},
 		"description too long": {CreateItemInput{Name: "widget", Description: strings.Repeat("d", MaxItemDescriptionLen+1)}, false},

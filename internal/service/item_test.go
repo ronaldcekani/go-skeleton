@@ -106,7 +106,7 @@ func (f *fakeCache) Set(_ context.Context, item domain.Item) error {
 	return nil
 }
 
-func (f *fakeCache) Delete(_ context.Context, id uuid.UUID) error {
+func (f *fakeCache) Invalidate(_ context.Context, id uuid.UUID) error {
 	delete(f.items, id)
 	return f.err
 }

@@ -59,6 +59,58 @@ func authorize(enforcer *policy.Enforcer, policies policy.Table, operations map[
 	}
 }
 
+// limitBody rejects request bodies larger than max bytes. Without it the
+// OpenAPI validator buffers whatever a client sends. A body that announces
+// its size is refused before anything is read; one that does not (chunked)
+// is cut off at the limit, which the validator's error handler reports.
+// Either way the client gets a 413.
+func limitBody(max int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.ContentLength > max {
+				writeBodyTooLarge(w, max)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, max)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// jsonRoutingErrors answers requests that match no route in the API's JSON
+// error format. The mux would answer them itself, with a plain-text 404 or
+// 405.
+func jsonRoutingErrors(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, pattern := mux.Handler(r); pattern != "" {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		// Let the mux decide the status and set its headers (Allow on a
+		// 405, Location on a redirect), but keep its body out.
+		rec := &bodyDiscarder{ResponseWriter: w, status: http.StatusOK}
+		mux.ServeHTTP(rec, r)
+		switch rec.status {
+		case http.StatusNotFound:
+			writeErrorBody(w, rec.status, domain.ErrKindNotFound.String(), "no such endpoint")
+		case http.StatusMethodNotAllowed:
+			writeErrorBody(w, rec.status, "method_not_allowed", "method not allowed")
+		default:
+			w.WriteHeader(rec.status)
+		}
+	})
+}
+
+// bodyDiscarder records the status and drops the body of a response.
+type bodyDiscarder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (d *bodyDiscarder) WriteHeader(status int) { d.status = status }
+
+func (d *bodyDiscarder) Write(b []byte) (int, error) { return len(b), nil }
+
 // statusRecorder captures the response status and size for the access log.
 type statusRecorder struct {
 	http.ResponseWriter

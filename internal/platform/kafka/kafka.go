@@ -38,12 +38,15 @@ func ping(ctx context.Context, client *kgo.Client) error {
 	return nil
 }
 
-// Producer publishes records synchronously.
+// Producer publishes records asynchronously: Publish buffers the record and
+// the client delivers it in the background, retrying until the delivery
+// timeout. A slow or unreachable broker therefore never delays the caller.
 type Producer struct {
 	client *kgo.Client
+	log    *slog.Logger
 }
 
-func NewProducer(ctx context.Context, opts Options) (*Producer, error) {
+func NewProducer(ctx context.Context, opts Options, log *slog.Logger) (*Producer, error) {
 	k, _ := newKotel()
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(opts.Brokers...),
@@ -60,17 +63,28 @@ func NewProducer(ctx context.Context, opts Options) (*Producer, error) {
 		client.Close()
 		return nil, err
 	}
-	return &Producer{client: client}, nil
+	return &Producer{client: client, log: log}, nil
 }
 
-// Publish sends one record and waits for the broker to acknowledge it. The
-// trace context in ctx is injected into the record headers.
-func (p *Producer) Publish(ctx context.Context, topic string, key, value []byte) error {
+// Publish queues one record for delivery and returns immediately. The trace
+// context in ctx is injected into the record headers.
+//
+// Delivery is best effort: a record that cannot be delivered within the
+// delivery timeout, or that does not fit in the buffer because the brokers
+// have been unreachable for a while, is dropped and logged. Records still
+// buffered when the process dies are lost; Close flushes them on a normal
+// shutdown. Events that must never be lost need a transactional outbox.
+func (p *Producer) Publish(ctx context.Context, topic string, key, value []byte) {
 	rec := &kgo.Record{Topic: topic, Key: key, Value: value}
-	if err := p.client.ProduceSync(ctx, rec).FirstErr(); err != nil {
-		return fmt.Errorf("produce to %q: %w", topic, err)
-	}
-	return nil
+	// The record outlives the request that produced it, so it must not be
+	// cancelled with it. TryProduce fails a record instead of blocking when
+	// the buffer is full.
+	p.client.TryProduce(context.WithoutCancel(ctx), rec, func(rec *kgo.Record, err error) {
+		if err != nil {
+			p.log.ErrorContext(rec.Context, "kafka record not delivered",
+				slog.String("topic", rec.Topic), slog.String("key", string(rec.Key)), slog.Any("error", err))
+		}
+	})
 }
 
 // Close flushes buffered records, bounded by ctx, then closes the client.

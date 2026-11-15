@@ -32,8 +32,11 @@ type ItemStore interface {
 
 type ItemCache interface {
 	Get(ctx context.Context, id uuid.UUID) (item domain.Item, found bool, err error)
+	// Set caches the item unless it was invalidated moments ago: a read
+	// that raced with a write must not put the old version back.
 	Set(ctx context.Context, item domain.Item) error
-	Delete(ctx context.Context, id uuid.UUID) error
+	// Invalidate drops the item after it was changed or deleted.
+	Invalidate(ctx context.Context, id uuid.UUID) error
 }
 
 type EventPublisher interface {
@@ -94,9 +97,9 @@ func (s *ItemService) Create(ctx context.Context, in domain.CreateItemInput) (_ 
 	span.SetAttributes(attribute.String("item.id", item.ID.String()))
 	s.created.Add(ctx, 1)
 
-	// The item is already committed, so a failed publish must not fail the
-	// request. If events must never be lost, replace this with a
-	// transactional outbox.
+	// Publishing does not wait for the broker, and the item is already
+	// committed, so a failed publish must not fail the request. If events
+	// must never be lost, replace this with a transactional outbox.
 	if err := s.publisher.PublishItemCreated(ctx, item); err != nil {
 		s.log.ErrorContext(ctx, "publish item created event failed",
 			slog.String("item_id", item.ID.String()), slog.Any("error", err))
@@ -164,7 +167,7 @@ func (s *ItemService) Update(ctx context.Context, id uuid.UUID, in domain.Update
 	if err != nil {
 		return domain.Item{}, err
 	}
-	if err := s.cache.Delete(ctx, id); err != nil {
+	if err := s.cache.Invalidate(ctx, id); err != nil {
 		s.log.WarnContext(ctx, "item cache invalidation failed", slog.Any("error", err))
 	}
 	return item, nil
@@ -193,7 +196,7 @@ func (s *ItemService) Delete(ctx context.Context, id uuid.UUID) (err error) {
 	if err := s.store.Delete(ctx, id); err != nil {
 		return err
 	}
-	if err := s.cache.Delete(ctx, id); err != nil {
+	if err := s.cache.Invalidate(ctx, id); err != nil {
 		s.log.WarnContext(ctx, "item cache invalidation failed", slog.Any("error", err))
 	}
 	return nil

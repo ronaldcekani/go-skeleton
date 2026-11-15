@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -29,30 +30,57 @@ func NewItemRepository(db *sqlx.DB) *ItemRepository {
 
 const itemColumns = `id, name, description, created_at, updated_at`
 
+// itemRow is one row of the items table.
+type itemRow struct {
+	ID          uuid.UUID `db:"id"`
+	Name        string    `db:"name"`
+	Description string    `db:"description"`
+	CreatedAt   time.Time `db:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at"`
+}
+
+func (r itemRow) toDomain() domain.Item {
+	return domain.Item{
+		ID:          r.ID,
+		Name:        r.Name,
+		Description: r.Description,
+		CreatedAt:   r.CreatedAt,
+		UpdatedAt:   r.UpdatedAt,
+	}
+}
+
+func toDomainItems(rows []itemRow) []domain.Item {
+	items := make([]domain.Item, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, row.toDomain())
+	}
+	return items
+}
+
 func (r *ItemRepository) Create(ctx context.Context, item domain.Item) (domain.Item, error) {
 	const q = `
 		INSERT INTO items (id, name, description)
 		VALUES ($1, $2, $3)
 		RETURNING ` + itemColumns
 
-	var out domain.Item
+	var out itemRow
 	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &out, q, item.ID, item.Name, item.Description); err != nil {
 		return domain.Item{}, fmt.Errorf("insert item: %w", err)
 	}
-	return out, nil
+	return out.toDomain(), nil
 }
 
 func (r *ItemRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Item, error) {
 	const q = `SELECT ` + itemColumns + ` FROM items WHERE id = $1`
 
-	var out domain.Item
+	var out itemRow
 	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &out, q, id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Item{}, domain.NotFound("item not found")
 		}
 		return domain.Item{}, fmt.Errorf("select item: %w", err)
 	}
-	return out, nil
+	return out.toDomain(), nil
 }
 
 // List returns one page of items, newest first, and the total row count.
@@ -63,15 +91,15 @@ func (r *ItemRepository) List(ctx context.Context, limit, offset int) ([]domain.
 		ORDER BY created_at DESC, id DESC
 		LIMIT $1 OFFSET $2`
 
-	items := make([]domain.Item, 0, limit)
-	if err := postgres.Conn(ctx, r.db).SelectContext(ctx, &items, q, limit, offset); err != nil {
+	rows := make([]itemRow, 0, limit)
+	if err := postgres.Conn(ctx, r.db).SelectContext(ctx, &rows, q, limit, offset); err != nil {
 		return nil, 0, fmt.Errorf("select items: %w", err)
 	}
 	var total int64
 	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &total, `SELECT count(*) FROM items`); err != nil {
 		return nil, 0, fmt.Errorf("count items: %w", err)
 	}
-	return items, total, nil
+	return toDomainItems(rows), total, nil
 }
 
 // Update sets the non-nil fields of in and bumps updated_at.
@@ -84,14 +112,14 @@ func (r *ItemRepository) Update(ctx context.Context, id uuid.UUID, in domain.Upd
 		WHERE id = $1
 		RETURNING ` + itemColumns
 
-	var out domain.Item
+	var out itemRow
 	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &out, q, id, in.Name, in.Description); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.Item{}, domain.NotFound("item not found")
 		}
 		return domain.Item{}, fmt.Errorf("update item: %w", err)
 	}
-	return out, nil
+	return out.toDomain(), nil
 }
 
 // Search returns one page of the items whose name or description contains
@@ -105,15 +133,15 @@ func (r *ItemRepository) Search(ctx context.Context, query string, limit, offset
 		LIMIT $2 OFFSET $3`
 
 	pattern := "%" + likeEscaper.Replace(query) + "%"
-	items := make([]domain.Item, 0, limit)
-	if err := postgres.Conn(ctx, r.db).SelectContext(ctx, &items, q, pattern, limit, offset); err != nil {
+	rows := make([]itemRow, 0, limit)
+	if err := postgres.Conn(ctx, r.db).SelectContext(ctx, &rows, q, pattern, limit, offset); err != nil {
 		return nil, 0, fmt.Errorf("search items: %w", err)
 	}
 	var total int64
 	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &total, `SELECT count(*)`+where, pattern); err != nil {
 		return nil, 0, fmt.Errorf("count search results: %w", err)
 	}
-	return items, total, nil
+	return toDomainItems(rows), total, nil
 }
 
 // likeEscaper makes LIKE wildcards in user input match literally ("\" is

@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -62,6 +63,11 @@ func writeError(log *slog.Logger) func(http.ResponseWriter, *http.Request, error
 // (malformed JSON, a path parameter of the wrong type).
 func writeInvalidRequest(w http.ResponseWriter, _ *http.Request, err error) {
 	writeErrorBody(w, http.StatusBadRequest, domain.ErrKindInvalidInput.String(), err.Error())
+}
+
+func writeBodyTooLarge(w http.ResponseWriter, max int64) {
+	writeErrorBody(w, http.StatusRequestEntityTooLarge, "payload_too_large",
+		fmt.Sprintf("request body must be at most %d bytes", max))
 }
 
 func writeErrorBody(w http.ResponseWriter, status int, code, message string) {

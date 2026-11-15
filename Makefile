@@ -43,7 +43,7 @@ migrate-down: ## Roll back the last DB migration
 migrate-status: ## Print DB migration status
 	go run ./cmd/app --mode=migration --migration-command=status --config=config/config.yaml
 
-test: ## Run tests (set TEST_POSTGRES_DSN to include the Postgres tests)
+test: ## Run tests (set TEST_POSTGRES_DSN and TEST_REDIS_ADDR to include the Postgres and Redis tests)
 	go test -race ./...
 
 vet: ## Run go vet

@@ -113,6 +113,73 @@ func TestUpdateItem(t *testing.T) {
 	}
 }
 
+func TestRequestBodyLimit(t *testing.T) {
+	ts := newTestServer(t, &fakeItems{})
+	big := `{"name":"x","description":"` + strings.Repeat("a", DefaultMaxBodyBytes) + `"}`
+
+	t.Run("announced size", func(t *testing.T) {
+		resp := do(t, http.MethodPost, ts.URL+"/v1/items", big)
+		if resp.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("status = %d, want 413", resp.StatusCode)
+		}
+	})
+	t.Run("chunked", func(t *testing.T) {
+		// A reader that is not a *strings.Reader hides the length, so the
+		// client sends the body chunked.
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/v1/items", io.MultiReader(strings.NewReader(big)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("status = %d, want 413", resp.StatusCode)
+		}
+	})
+	t.Run("under the limit", func(t *testing.T) {
+		resp := do(t, http.MethodPost, ts.URL+"/v1/items", `{"name":"x"}`)
+		if resp.StatusCode != http.StatusCreated {
+			t.Errorf("status = %d, want 201", resp.StatusCode)
+		}
+	})
+}
+
+func TestUnknownRoutesGetJSONErrors(t *testing.T) {
+	ts := newTestServer(t, &fakeItems{})
+	for name, tc := range map[string]struct {
+		method, path string
+		status       int
+		code         string
+	}{
+		"unknown path":   {http.MethodGet, "/nope", http.StatusNotFound, "not_found"},
+		"unknown method": {http.MethodPut, "/v1/items", http.StatusMethodNotAllowed, "method_not_allowed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := do(t, tc.method, ts.URL+tc.path, "")
+			if resp.StatusCode != tc.status {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, tc.status)
+			}
+			if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+				t.Errorf("Content-Type = %q, want application/json", ct)
+			}
+			var body openapi.Error
+			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+			if body.Code != tc.code {
+				t.Errorf("code = %q, want %q", body.Code, tc.code)
+			}
+			if tc.status == http.StatusMethodNotAllowed && resp.Header.Get("Allow") == "" {
+				t.Error("a 405 must say which methods are allowed")
+			}
+		})
+	}
+}
+
 func TestSearchItems(t *testing.T) {
 	items := &fakeItems{item: domain.Item{ID: uuid.New(), Name: "widget"}}
 	ts := newTestServer(t, items)
