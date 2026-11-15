@@ -54,6 +54,15 @@ grpcurl -plaintext -H "authorization: Bearer $TOKEN" -d '{"limit": 10}' \
   localhost:9090 item.v1.ItemService/ListItems
 ```
 
+| HTTP                         | gRPC          |                                              |
+| ---------------------------- | ------------- | -------------------------------------------- |
+| `POST /v1/items`             | `CreateItem`  | create an item                               |
+| `GET /v1/items`              | `ListItems`   | one page of items, newest first              |
+| `GET /v1/items:search?q=...` | `SearchItems` | items whose name or description contains `q` |
+| `GET /v1/items/{id}`         | `GetItem`     | one item (read through the Redis cache)      |
+| `PATCH /v1/items/{id}`       | `UpdateItem`  | change only the fields that are sent         |
+| `DELETE /v1/items/{id}`      | `DeleteItem`  | delete an item                               |
+
 To skip Keycloak while developing, run with `APP_AUTH__ENABLED=false`.
 
 Traces and metrics are in Grafana at http://localhost:3000. To run everything
@@ -218,12 +227,12 @@ auth:
 endpoints:
   rules:
     - name: read-items
-      http: [listItems, getItem]                # OpenAPI operationIds
-      grpc: [item.v1.ItemService/ListItems, item.v1.ItemService/GetItem]
+      http: [listItems, getItem, searchItems]   # OpenAPI operationIds
+      grpc: [item.v1.ItemService/ListItems, item.v1.ItemService/GetItem, item.v1.ItemService/SearchItems]
       public: true                              # no token needed
     - name: write-items
-      http: [createItem, deleteItem]
-      grpc: [item.v1.ItemService/CreateItem, item.v1.ItemService/DeleteItem]
+      http: [createItem, updateItem, deleteItem]
+      grpc: [item.v1.ItemService/CreateItem, item.v1.ItemService/UpdateItem, item.v1.ItemService/DeleteItem]
       rate_limit: { requests: 20, period: 1m, burst: 5 }
 ```
 

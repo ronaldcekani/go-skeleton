@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/example/go-skeleton/internal/domain"
-	"github.com/example/go-skeleton/internal/gen/openapi"
+	openapi "github.com/example/go-skeleton/internal/gen/openapi"
 )
 
 // ItemService is what the HTTP transport needs from the service layer.
@@ -14,6 +14,8 @@ type ItemService interface {
 	Create(ctx context.Context, in domain.CreateItemInput) (domain.Item, error)
 	Get(ctx context.Context, id uuid.UUID) (domain.Item, error)
 	List(ctx context.Context, in domain.ListItemsInput) ([]domain.Item, int64, error)
+	Update(ctx context.Context, id uuid.UUID, in domain.UpdateItemInput) (domain.Item, error)
+	Search(ctx context.Context, in domain.SearchItemsInput) ([]domain.Item, int64, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
@@ -39,11 +41,23 @@ func (h *handler) ListItems(ctx context.Context, req openapi.ListItemsRequestObj
 	if err != nil {
 		return nil, err
 	}
-	out := make([]openapi.Item, 0, len(items))
-	for _, it := range items {
-		out = append(out, toAPI(it))
+	return openapi.ListItems200JSONResponse(toAPIList(items, total)), nil
+}
+
+func (h *handler) SearchItems(ctx context.Context, req openapi.SearchItemsRequestObject) (openapi.SearchItemsResponseObject, error) {
+	in := domain.SearchItemsInput{Query: req.Params.Q}
+	if req.Params.Limit != nil {
+		in.Limit = *req.Params.Limit
 	}
-	return openapi.ListItems200JSONResponse{Items: out, Total: total}, nil
+	if req.Params.Offset != nil {
+		in.Offset = *req.Params.Offset
+	}
+
+	items, total, err := h.items.Search(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return openapi.SearchItems200JSONResponse(toAPIList(items, total)), nil
 }
 
 func (h *handler) CreateItem(ctx context.Context, req openapi.CreateItemRequestObject) (openapi.CreateItemResponseObject, error) {
@@ -67,6 +81,17 @@ func (h *handler) GetItem(ctx context.Context, req openapi.GetItemRequestObject)
 	return openapi.GetItem200JSONResponse(toAPI(item)), nil
 }
 
+func (h *handler) UpdateItem(ctx context.Context, req openapi.UpdateItemRequestObject) (openapi.UpdateItemResponseObject, error) {
+	item, err := h.items.Update(ctx, req.Id, domain.UpdateItemInput{
+		Name:        req.Body.Name,
+		Description: req.Body.Description,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return openapi.UpdateItem200JSONResponse(toAPI(item)), nil
+}
+
 func (h *handler) DeleteItem(ctx context.Context, req openapi.DeleteItemRequestObject) (openapi.DeleteItemResponseObject, error) {
 	if err := h.items.Delete(ctx, req.Id); err != nil {
 		return nil, err
@@ -82,4 +107,12 @@ func toAPI(it domain.Item) openapi.Item {
 		CreatedAt:   it.CreatedAt,
 		UpdatedAt:   it.UpdatedAt,
 	}
+}
+
+func toAPIList(items []domain.Item, total int64) openapi.ItemList {
+	out := make([]openapi.Item, 0, len(items))
+	for _, it := range items {
+		out = append(out, toAPI(it))
+	}
+	return openapi.ItemList{Items: out, Total: total}
 }

@@ -82,12 +82,12 @@ rate_limit:
 endpoints:
   rules:
     - name: read-items
-      http: [listItems, getItem]
-      grpc: [item.v1.ItemService/ListItems, item.v1.ItemService/GetItem]
+      http: [listItems, getItem, searchItems]
+      grpc: [item.v1.ItemService/ListItems, item.v1.ItemService/GetItem, item.v1.ItemService/SearchItems]
       rate_limit: { requests: 120, period: 1m }
     - name: write-items
-      http: [createItem, deleteItem]
-      grpc: [item.v1.ItemService/CreateItem, item.v1.ItemService/DeleteItem]
+      http: [createItem, updateItem, deleteItem]
+      grpc: [item.v1.ItemService/CreateItem, item.v1.ItemService/UpdateItem, item.v1.ItemService/DeleteItem]
       rate_limit: { requests: 20, period: 1m, burst: 5 }
 
 shutdown:

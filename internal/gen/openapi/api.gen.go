@@ -51,6 +51,12 @@ type ItemList struct {
 	Total int64  `json:"total"`
 }
 
+// UpdateItemRequest defines model for UpdateItemRequest.
+type UpdateItemRequest struct {
+	Description *string `json:"description,omitempty"`
+	Name        *string `json:"name,omitempty"`
+}
+
 // InternalError defines model for InternalError.
 type InternalError = Error
 
@@ -66,8 +72,18 @@ type ListItemsParams struct {
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// SearchItemsParams defines parameters for SearchItems.
+type SearchItemsParams struct {
+	Q      string `form:"q" json:"q"`
+	Limit  *int   `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int   `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // CreateItemJSONRequestBody defines body for CreateItem for application/json ContentType.
 type CreateItemJSONRequestBody = CreateItemRequest
+
+// UpdateItemJSONRequestBody defines body for UpdateItem for application/json ContentType.
+type UpdateItemJSONRequestBody = UpdateItemRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -83,6 +99,12 @@ type ServerInterface interface {
 	// GetItem Get an item by ID
 	// (GET /v1/items/{id})
 	GetItem(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// UpdateItem Update an item
+	// (PATCH /v1/items/{id})
+	UpdateItem(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// SearchItems Search items by name or description
+	// (GET /v1/items:search)
+	SearchItems(w http.ResponseWriter, r *http.Request, params SearchItemsParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -197,6 +219,91 @@ func (siw *ServerInterfaceWrapper) GetItem(w http.ResponseWriter, r *http.Reques
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetItem(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateItem operation middleware
+func (siw *ServerInterfaceWrapper) UpdateItem(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateItem(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SearchItems operation middleware
+func (siw *ServerInterfaceWrapper) SearchItems(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchItemsParams
+
+	// ------------- Required query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SearchItems(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -328,8 +435,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/items", wrapper.ListItems)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/items", wrapper.CreateItem)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/items:search", wrapper.SearchItems)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/items/{id}", wrapper.DeleteItem)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/items/{id}", wrapper.GetItem)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/items/{id}", wrapper.UpdateItem)
 
 	return m
 }
@@ -665,6 +774,183 @@ func (response GetItem500JSONResponse) VisitGetItemResponse(w http.ResponseWrite
 	return err
 }
 
+type UpdateItemRequestObject struct {
+	Id   openapi_types.UUID `json:"id"`
+	Body *UpdateItemJSONRequestBody
+}
+
+type UpdateItemResponseObject interface {
+	VisitUpdateItemResponse(w http.ResponseWriter) error
+}
+
+type UpdateItem200JSONResponse Item
+
+func (response UpdateItem200JSONResponse) VisitUpdateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateItem400JSONResponse Error
+
+func (response UpdateItem400JSONResponse) VisitUpdateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateItem401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateItem401JSONResponse) VisitUpdateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateItem404JSONResponse Error
+
+func (response UpdateItem404JSONResponse) VisitUpdateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateItem429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response UpdateItem429JSONResponse) VisitUpdateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateItem500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response UpdateItem500JSONResponse) VisitUpdateItemResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchItemsRequestObject struct {
+	Params SearchItemsParams
+}
+
+type SearchItemsResponseObject interface {
+	VisitSearchItemsResponse(w http.ResponseWriter) error
+}
+
+type SearchItems200JSONResponse ItemList
+
+func (response SearchItems200JSONResponse) VisitSearchItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchItems400JSONResponse Error
+
+func (response SearchItems400JSONResponse) VisitSearchItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchItems401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SearchItems401JSONResponse) VisitSearchItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchItems429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response SearchItems429JSONResponse) VisitSearchItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchItems500JSONResponse struct{ InternalErrorJSONResponse }
+
+func (response SearchItems500JSONResponse) VisitSearchItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// ListItems List items
@@ -679,6 +965,12 @@ type StrictServerInterface interface {
 	// GetItem Get an item by ID
 	// (GET /v1/items/{id})
 	GetItem(ctx context.Context, request GetItemRequestObject) (GetItemResponseObject, error)
+	// UpdateItem Update an item
+	// (PATCH /v1/items/{id})
+	UpdateItem(ctx context.Context, request UpdateItemRequestObject) (UpdateItemResponseObject, error)
+	// SearchItems Search items by name or description
+	// (GET /v1/items:search)
+	SearchItems(ctx context.Context, request SearchItemsRequestObject) (SearchItemsResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -829,27 +1121,90 @@ func (sh *strictHandler) GetItem(w http.ResponseWriter, r *http.Request, id open
 	}
 }
 
+// UpdateItem operation middleware
+func (sh *strictHandler) UpdateItem(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	var request UpdateItemRequestObject
+
+	request.Id = id
+
+	var body UpdateItemJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateItem(ctx, request.(UpdateItemRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateItem")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateItemResponseObject); ok {
+		if err := validResponse.VisitUpdateItemResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SearchItems operation middleware
+func (sh *strictHandler) SearchItems(w http.ResponseWriter, r *http.Request, params SearchItemsParams) {
+	var request SearchItemsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchItems(ctx, request.(SearchItemsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchItems")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SearchItemsResponseObject); ok {
+		if err := validResponse.VisitSearchItemsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"//8=",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

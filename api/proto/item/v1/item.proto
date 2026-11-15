@@ -12,6 +12,10 @@ service ItemService {
   rpc GetItem(GetItemRequest) returns (GetItemResponse);
   rpc ListItems(ListItemsRequest) returns (ListItemsResponse);
   rpc DeleteItem(DeleteItemRequest) returns (DeleteItemResponse);
+  // UpdateItem changes only the fields that are set.
+  rpc UpdateItem(UpdateItemRequest) returns (UpdateItemResponse);
+  // SearchItems finds items whose name or description contains the query.
+  rpc SearchItems(SearchItemsRequest) returns (SearchItemsResponse);
 }
 
 message Item {
@@ -54,3 +58,26 @@ message DeleteItemRequest {
 }
 
 message DeleteItemResponse {}
+
+message UpdateItemRequest {
+  string id = 1;
+  // Unset fields keep their current value. At least one must be set.
+  optional string name = 2;
+  optional string description = 3;
+}
+
+message UpdateItemResponse {
+  Item item = 1;
+}
+
+message SearchItemsRequest {
+  // Case-insensitive substring matched against name and description.
+  string query = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message SearchItemsResponse {
+  repeated Item items = 1;
+  int64 total = 2;
+}

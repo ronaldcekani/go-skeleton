@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"github.com/example/go-skeleton/internal/domain"
-	"github.com/example/go-skeleton/internal/gen/openapi"
+	openapi "github.com/example/go-skeleton/internal/gen/openapi"
 )
 
 // statusClientClosedRequest is the de facto status (from nginx) for a request

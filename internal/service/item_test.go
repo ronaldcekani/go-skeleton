@@ -16,6 +16,9 @@ import (
 type fakeStore struct {
 	items map[uuid.UUID]domain.Item
 	gets  int
+
+	lastQuery string
+	lastLimit int
 }
 
 func (f *fakeStore) Create(_ context.Context, item domain.Item) (domain.Item, error) {
@@ -41,6 +44,37 @@ func (f *fakeStore) List(_ context.Context, limit, _ int) ([]domain.Item, int64,
 		out = append(out, it)
 	}
 	return out, int64(len(f.items)), nil
+}
+
+func (f *fakeStore) Update(_ context.Context, id uuid.UUID, in domain.UpdateItemInput) (domain.Item, error) {
+	item, ok := f.items[id]
+	if !ok {
+		return domain.Item{}, domain.NotFound("item not found")
+	}
+	if in.Name != nil {
+		item.Name = *in.Name
+	}
+	if in.Description != nil {
+		item.Description = *in.Description
+	}
+	f.items[id] = item
+	return item, nil
+}
+
+func (f *fakeStore) Search(_ context.Context, query string, limit, _ int) ([]domain.Item, int64, error) {
+	f.lastQuery, f.lastLimit = query, limit
+	q := strings.ToLower(query)
+	var out []domain.Item
+	for _, it := range f.items {
+		if strings.Contains(strings.ToLower(it.Name), q) || strings.Contains(strings.ToLower(it.Description), q) {
+			out = append(out, it)
+		}
+	}
+	total := int64(len(out))
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, total, nil
 }
 
 func (f *fakeStore) Delete(_ context.Context, id uuid.UUID) error {
@@ -225,5 +259,114 @@ func TestListValidatesPaging(t *testing.T) {
 	}
 	if _, _, err := svc.List(t.Context(), domain.ListItemsInput{}); err != nil {
 		t.Errorf("List with default limit: %v", err)
+	}
+}
+
+func TestUpdateChangesOnlySetFields(t *testing.T) {
+	svc, store, _, _ := newTestService(t)
+	item, err := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget", Description: "a thing"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	name := "  gadget  "
+	got, err := svc.Update(t.Context(), item.ID, domain.UpdateItemInput{Name: &name})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if got.Name != "gadget" {
+		t.Errorf("name = %q, want trimmed %q", got.Name, "gadget")
+	}
+	if got.Description != "a thing" {
+		t.Errorf("description = %q, want it unchanged", got.Description)
+	}
+	if store.items[item.ID].Name != "gadget" {
+		t.Error("update was not stored")
+	}
+}
+
+func TestUpdateInvalidatesCache(t *testing.T) {
+	svc, _, cache, _ := newTestService(t)
+	item, _ := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget"})
+	if _, err := svc.Get(t.Context(), item.ID); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	desc := "new"
+	if _, err := svc.Update(t.Context(), item.ID, domain.UpdateItemInput{Description: &desc}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if _, ok := cache.items[item.ID]; ok {
+		t.Error("cache entry survived update")
+	}
+	got, err := svc.Get(t.Context(), item.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Description != "new" {
+		t.Errorf("Get after update returned description %q, want %q", got.Description, "new")
+	}
+}
+
+func TestUpdateErrors(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	item, _ := svc.Create(t.Context(), domain.CreateItemInput{Name: "widget"})
+	blank, name := "   ", "gadget"
+
+	for label, tc := range map[string]struct {
+		id   uuid.UUID
+		in   domain.UpdateItemInput
+		kind domain.ErrKind
+	}{
+		"no fields":  {item.ID, domain.UpdateItemInput{}, domain.ErrKindInvalidInput},
+		"blank name": {item.ID, domain.UpdateItemInput{Name: &blank}, domain.ErrKindInvalidInput},
+		"not found":  {uuid.New(), domain.UpdateItemInput{Name: &name}, domain.ErrKindNotFound},
+	} {
+		t.Run(label, func(t *testing.T) {
+			if _, err := svc.Update(t.Context(), tc.id, tc.in); !domain.IsKind(err, tc.kind) {
+				t.Errorf("err = %v, want %v", err, tc.kind)
+			}
+		})
+	}
+}
+
+func TestSearch(t *testing.T) {
+	svc, store, _, _ := newTestService(t)
+	for _, in := range []domain.CreateItemInput{
+		{Name: "Blue widget"},
+		{Name: "gadget", Description: "works with any WIDGET"},
+		{Name: "sprocket"},
+	} {
+		if _, err := svc.Create(t.Context(), in); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+
+	items, total, err := svc.Search(t.Context(), domain.SearchItemsInput{Query: "  widget "})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if total != 2 || len(items) != 2 {
+		t.Errorf("got %d items, total %d; want 2, 2", len(items), total)
+	}
+	if store.lastQuery != "widget" || store.lastLimit != domain.DefaultPageSize {
+		t.Errorf("store got query %q limit %d, want trimmed query and default limit", store.lastQuery, store.lastLimit)
+	}
+}
+
+func TestSearchValidatesInput(t *testing.T) {
+	svc, _, _, _ := newTestService(t)
+	for label, in := range map[string]domain.SearchItemsInput{
+		"empty query":    {},
+		"blank query":    {Query: "   "},
+		"query too long": {Query: strings.Repeat("q", domain.MaxSearchQueryLen+1)},
+		"bad limit":      {Query: "widget", Limit: domain.MaxPageSize + 1},
+		"bad offset":     {Query: "widget", Offset: -1},
+	} {
+		t.Run(label, func(t *testing.T) {
+			if _, _, err := svc.Search(t.Context(), in); !domain.IsKind(err, domain.ErrKindInvalidInput) {
+				t.Errorf("err = %v, want invalid input", err)
+			}
+		})
 	}
 }

@@ -25,6 +25,8 @@ type ItemStore interface {
 	Create(ctx context.Context, item domain.Item) (domain.Item, error)
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Item, error)
 	List(ctx context.Context, limit, offset int) ([]domain.Item, int64, error)
+	Update(ctx context.Context, id uuid.UUID, in domain.UpdateItemInput) (domain.Item, error)
+	Search(ctx context.Context, query string, limit, offset int) ([]domain.Item, int64, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
@@ -141,6 +143,46 @@ func (s *ItemService) List(ctx context.Context, in domain.ListItemsInput) (_ []d
 		in.Limit = domain.DefaultPageSize
 	}
 	return s.store.List(ctx, in.Limit, in.Offset)
+}
+
+// Update changes the given fields of an item and drops its cache entry, so
+// the next Get reads the new version.
+func (s *ItemService) Update(ctx context.Context, id uuid.UUID, in domain.UpdateItemInput) (_ domain.Item, err error) {
+	ctx, span := s.tracer.Start(ctx, "ItemService.Update",
+		trace.WithAttributes(attribute.String("item.id", id.String())))
+	defer func() { endSpan(span, err) }()
+
+	if in.Name != nil {
+		name := strings.TrimSpace(*in.Name)
+		in.Name = &name
+	}
+	if err := in.Validate(); err != nil {
+		return domain.Item{}, err
+	}
+
+	item, err := s.store.Update(ctx, id, in)
+	if err != nil {
+		return domain.Item{}, err
+	}
+	if err := s.cache.Delete(ctx, id); err != nil {
+		s.log.WarnContext(ctx, "item cache invalidation failed", slog.Any("error", err))
+	}
+	return item, nil
+}
+
+// Search returns one page of matching items and the total number of matches.
+func (s *ItemService) Search(ctx context.Context, in domain.SearchItemsInput) (_ []domain.Item, _ int64, err error) {
+	ctx, span := s.tracer.Start(ctx, "ItemService.Search")
+	defer func() { endSpan(span, err) }()
+
+	in.Query = strings.TrimSpace(in.Query)
+	if err := in.Validate(); err != nil {
+		return nil, 0, err
+	}
+	if in.Limit == 0 {
+		in.Limit = domain.DefaultPageSize
+	}
+	return s.store.Search(ctx, in.Query, in.Limit, in.Offset)
 }
 
 func (s *ItemService) Delete(ctx context.Context, id uuid.UUID) (err error) {
