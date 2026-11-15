@@ -6,6 +6,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3filter"
@@ -31,7 +33,12 @@ type Options struct {
 	ReadTimeout       time.Duration
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
+	// MaxBodyBytes caps the size of a request body. 0 means DefaultMaxBodyBytes.
+	MaxBodyBytes int64
 }
+
+// DefaultMaxBodyBytes is the request body limit when Options sets none.
+const DefaultMaxBodyBytes = 1 << 20
 
 // ReadinessCheck reports whether the app can serve traffic right now.
 type ReadinessCheck func(ctx context.Context) error
@@ -77,11 +84,24 @@ func New(opts Options, items ItemService, ready ReadinessCheck, enforcer *policy
 		ResponseErrorHandlerFunc: writeError(log),
 	})
 
+	maxBody := opts.MaxBodyBytes
+	if maxBody <= 0 {
+		maxBody = DefaultMaxBodyBytes
+	}
+
 	// Rejects requests that do not match the OpenAPI spec before they reach
 	// a handler.
 	validator := nethttpmiddleware.OapiRequestValidatorWithOptions(spec, &nethttpmiddleware.Options{
-		ErrorHandler: func(w http.ResponseWriter, message string, statusCode int) {
-			writeErrorBody(w, statusCode, domain.ErrKindInvalidInput.String(), message)
+		ErrorHandlerWithOpts: func(_ context.Context, err error, w http.ResponseWriter, _ *http.Request, opts nethttpmiddleware.ErrorHandlerOpts) {
+			// A body without a declared length (chunked) that ran into
+			// limitBody while the validator was reading it.
+			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+				writeBodyTooLarge(w, maxBody)
+				return
+			}
+			// Validation errors are multi-line; the first line says what is wrong.
+			message, _, _ := strings.Cut(err.Error(), "\n")
+			writeErrorBody(w, opts.StatusCode, domain.ErrKindInvalidInput.String(), message)
 		},
 		// Tokens are verified by the authorize middleware, which runs first.
 		Options: openapi3filter.Options{AuthenticationFunc: openapi3filter.NoopAuthenticationFunc},
@@ -89,11 +109,12 @@ func New(opts Options, items ItemService, ready ReadinessCheck, enforcer *policy
 
 	// Registers the generated routes on mux. The middlewares run per matched
 	// operation, after routing; the last one listed runs first, so a request
-	// is authenticated and rate limited before its body is read.
+	// is authenticated and rate limited before its body is read, and the
+	// body is capped before the validator reads it into memory.
 	authz := authorize(enforcer, policies, operations, writeError(log))
 	openapi.HandlerWithOptions(strict, openapi.StdHTTPServerOptions{
 		BaseRouter:       mux,
-		Middlewares:      []openapi.MiddlewareFunc{validator, authz, routeTag},
+		Middlewares:      []openapi.MiddlewareFunc{validator, limitBody(maxBody), authz, routeTag},
 		ErrorHandlerFunc: writeInvalidRequest,
 	})
 

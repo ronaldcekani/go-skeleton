@@ -113,6 +113,41 @@ func TestUpdateItem(t *testing.T) {
 	}
 }
 
+func TestRequestBodyLimit(t *testing.T) {
+	ts := newTestServer(t, &fakeItems{})
+	big := `{"name":"x","description":"` + strings.Repeat("a", DefaultMaxBodyBytes) + `"}`
+
+	t.Run("announced size", func(t *testing.T) {
+		resp := do(t, http.MethodPost, ts.URL+"/v1/items", big)
+		if resp.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("status = %d, want 413", resp.StatusCode)
+		}
+	})
+	t.Run("chunked", func(t *testing.T) {
+		// A reader that is not a *strings.Reader hides the length, so the
+		// client sends the body chunked.
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/v1/items", io.MultiReader(strings.NewReader(big)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Errorf("status = %d, want 413", resp.StatusCode)
+		}
+	})
+	t.Run("under the limit", func(t *testing.T) {
+		resp := do(t, http.MethodPost, ts.URL+"/v1/items", `{"name":"x"}`)
+		if resp.StatusCode != http.StatusCreated {
+			t.Errorf("status = %d, want 201", resp.StatusCode)
+		}
+	})
+}
+
 func TestSearchItems(t *testing.T) {
 	items := &fakeItems{item: domain.Item{ID: uuid.New(), Name: "widget"}}
 	ts := newTestServer(t, items)

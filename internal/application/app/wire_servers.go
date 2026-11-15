@@ -30,15 +30,16 @@ func wireServers(ctx context.Context, cfg config.Config, p *platform, svc *servi
 		return nil, err
 	}
 
+	// Readiness only depends on what the app cannot work without. Redis is
+	// left out on purpose: the cache and the rate limiter degrade when it is
+	// down, and a failing probe would take every replica out of rotation at
+	// once and turn a degradation into an outage.
 	ready := func(ctx context.Context) error {
 		if !appReady() {
 			return errors.New("not ready")
 		}
 		if err := p.db.PingContext(ctx); err != nil {
 			return fmt.Errorf("postgres: %w", err)
-		}
-		if err := p.redis.Ping(ctx).Err(); err != nil {
-			return fmt.Errorf("redis: %w", err)
 		}
 		return nil
 	}
@@ -50,6 +51,7 @@ func wireServers(ctx context.Context, cfg config.Config, p *platform, svc *servi
 		ReadTimeout:       cfg.HTTP.ReadTimeout,
 		WriteTimeout:      cfg.HTTP.WriteTimeout,
 		IdleTimeout:       cfg.HTTP.IdleTimeout,
+		MaxBodyBytes:      cfg.HTTP.MaxBodyBytes,
 	}, svc.items, ready, enforcer, policies, log)
 	if err != nil {
 		return nil, fmt.Errorf("http: %w", err)

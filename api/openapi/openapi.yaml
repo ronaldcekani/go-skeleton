@@ -56,6 +56,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "500": { $ref: "#/components/responses/InternalError" }
@@ -140,6 +141,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "500": { $ref: "#/components/responses/InternalError" }
@@ -167,6 +169,11 @@ components:
   responses:
     Unauthorized:
       description: Missing, invalid or expired access token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    PayloadTooLarge:
+      description: Request body larger than the server accepts
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

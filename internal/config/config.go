@@ -66,6 +66,9 @@ type HTTP struct {
 	ReadTimeout       time.Duration `koanf:"read_timeout"`
 	WriteTimeout      time.Duration `koanf:"write_timeout"`
 	IdleTimeout       time.Duration `koanf:"idle_timeout"`
+	// MaxBodyBytes is the largest request body accepted; larger ones are
+	// rejected with 413 before they are read.
+	MaxBodyBytes int64 `koanf:"max_body_bytes"`
 }
 
 type GRPC struct {
@@ -229,6 +232,7 @@ func Default() Config {
 			ReadTimeout:       15 * time.Second,
 			WriteTimeout:      30 * time.Second,
 			IdleTimeout:       60 * time.Second,
+			MaxBodyBytes:      1 << 20,
 		},
 		GRPC: GRPC{Host: "0.0.0.0", Port: 9090, Reflection: true},
 		Postgres: Postgres{
@@ -383,6 +387,9 @@ func (c Config) Validate() error {
 		}
 		if c.GRPC.Port <= 0 || c.GRPC.Port > 65535 {
 			errs = append(errs, fmt.Errorf("grpc.port: %d out of range", c.GRPC.Port))
+		}
+		if c.HTTP.MaxBodyBytes <= 0 {
+			errs = append(errs, errors.New("http.max_body_bytes: must be positive"))
 		}
 		if c.HTTP.Port == c.GRPC.Port {
 			errs = append(errs, errors.New("http.port and grpc.port must differ"))

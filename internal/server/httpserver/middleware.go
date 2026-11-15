@@ -59,6 +59,24 @@ func authorize(enforcer *policy.Enforcer, policies policy.Table, operations map[
 	}
 }
 
+// limitBody rejects request bodies larger than max bytes. Without it the
+// OpenAPI validator buffers whatever a client sends. A body that announces
+// its size is refused before anything is read; one that does not (chunked)
+// is cut off at the limit, which the validator's error handler reports.
+// Either way the client gets a 413.
+func limitBody(max int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.ContentLength > max {
+				writeBodyTooLarge(w, max)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, max)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // statusRecorder captures the response status and size for the access log.
 type statusRecorder struct {
 	http.ResponseWriter

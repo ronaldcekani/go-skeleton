@@ -267,6 +267,7 @@ comma-separated.
 
 ```bash
 APP_HTTP__PORT=8081
+APP_HTTP__MAX_BODY_BYTES=1048576   # larger request bodies get 413
 APP_POSTGRES__DSN=postgres://user:pass@db:5432/app?sslmode=require
 APP_KAFKA__BROKERS=kafka-1:9092,kafka-2:9092
 APP_KAFKA__ENABLED=false       # run without Kafka; events are discarded
@@ -296,8 +297,9 @@ live in `internal/config/config.go`.
   `http`). An Instana agent accepts both on `:4317` / `:4318` without a key;
   exporting to the Instana backend directly needs `telemetry.instana_key`,
   sent as the `x-instana-key` header.
-- **Probes**: `GET /healthz` (liveness), `GET /readyz` (checks Postgres and
-  Redis, fails during shutdown), and the standard gRPC health service.
+- **Probes**: `GET /healthz` (liveness), `GET /readyz` (checks Postgres,
+  fails during shutdown; Redis is left out because the app degrades without
+  it instead of failing), and the standard gRPC health service.
 
 ## Lifecycle
 
