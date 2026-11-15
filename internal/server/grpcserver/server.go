@@ -55,9 +55,12 @@ func New(opts Options, items ItemService, enforcer *policy.Enforcer, policies po
 			authorize(enforcer, policies),
 		),
 		// The skeleton has no streaming RPCs of its own, but any that are
-		// added must not bypass authentication.
+		// added get the same chain: they must not bypass authentication, and
+		// a panic in one must not crash the process.
 		grpc.ChainStreamInterceptor(
+			loggingStreamInterceptor(log),
 			errorStreamInterceptor(log),
+			recoveryStreamInterceptor(log),
 			authorizeStream(enforcer, policies),
 		),
 	)
@@ -162,25 +165,46 @@ func (s *contextStream) Context() context.Context { return s.ctx }
 
 func loggingInterceptor(log *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
-		if info.FullMethod == healthpb.Health_Check_FullMethodName {
+		if isHealthMethod(info.FullMethod) {
 			return next(ctx, req)
 		}
 		start := time.Now()
 		resp, err := next(ctx, req)
-
-		code := status.Code(err)
-		level := slog.LevelInfo
-		switch code {
-		case codes.Internal, codes.Unknown, codes.DataLoss, codes.Unavailable, codes.DeadlineExceeded:
-			level = slog.LevelError
-		}
-		log.LogAttrs(ctx, level, "grpc request",
-			slog.String("method", info.FullMethod),
-			slog.String("code", code.String()),
-			slog.Duration("duration", time.Since(start)),
-		)
+		logCall(ctx, log, info.FullMethod, start, err)
 		return resp, err
 	}
+}
+
+// loggingStreamInterceptor is loggingInterceptor for streaming RPCs: one
+// record per stream, when it ends.
+func loggingStreamInterceptor(log *slog.Logger) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, next grpc.StreamHandler) error {
+		if isHealthMethod(info.FullMethod) {
+			return next(srv, ss)
+		}
+		start := time.Now()
+		err := next(srv, ss)
+		logCall(ss.Context(), log, info.FullMethod, start, err)
+		return err
+	}
+}
+
+func isHealthMethod(fullMethod string) bool {
+	return strings.HasPrefix(fullMethod, "/grpc.health.v1.Health/")
+}
+
+func logCall(ctx context.Context, log *slog.Logger, method string, start time.Time, err error) {
+	code := status.Code(err)
+	level := slog.LevelInfo
+	switch code {
+	case codes.Internal, codes.Unknown, codes.DataLoss, codes.Unavailable, codes.DeadlineExceeded:
+		level = slog.LevelError
+	}
+	log.LogAttrs(ctx, level, "grpc request",
+		slog.String("method", method),
+		slog.String("code", code.String()),
+		slog.Duration("duration", time.Since(start)),
+	)
 }
 
 // recoveryInterceptor turns a handler panic into codes.Internal instead of
@@ -189,12 +213,28 @@ func recoveryInterceptor(log *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (resp any, err error) {
 		defer func() {
 			if v := recover(); v != nil {
-				log.ErrorContext(ctx, "grpc handler panicked",
-					slog.String("method", info.FullMethod),
-					slog.Any("panic", v), slog.String("stack", string(debug.Stack())))
-				err = status.Error(codes.Internal, "internal server error")
+				err = panicError(ctx, log, info.FullMethod, v)
 			}
 		}()
 		return next(ctx, req)
 	}
+}
+
+// recoveryStreamInterceptor is recoveryInterceptor for streaming RPCs.
+func recoveryStreamInterceptor(log *slog.Logger) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, next grpc.StreamHandler) (err error) {
+		defer func() {
+			if v := recover(); v != nil {
+				err = panicError(ss.Context(), log, info.FullMethod, v)
+			}
+		}()
+		return next(srv, ss)
+	}
+}
+
+func panicError(ctx context.Context, log *slog.Logger, method string, v any) error {
+	log.ErrorContext(ctx, "grpc handler panicked",
+		slog.String("method", method),
+		slog.Any("panic", v), slog.String("stack", string(debug.Stack())))
+	return status.Error(codes.Internal, "internal server error")
 }
