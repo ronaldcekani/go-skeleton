@@ -221,20 +221,22 @@ and one line in each of the two mapping functions.
 
 Callers send a Keycloak access token as `Authorization: Bearer <token>` (the
 `authorization` metadata key on gRPC). The token's signature, issuer, expiry
-and (optionally) audience are verified locally against the realm's signing
+and audience are verified locally against the realm's signing
 keys, which are fetched at startup and refreshed in the background; no call
 to Keycloak is made per request. ID and refresh tokens are rejected.
 
-Set `auth.audience` in production. Without it a token issued to any client
-of the realm is accepted, and the app logs a warning at startup. Keycloak
-only puts this service in a token's `aud` claim if the client has an audience
-mapper for it.
+`auth.audience` is required: a token is only accepted if its `aud` claim
+contains it, so tokens issued for other clients of the realm are rejected.
+Keycloak does not add a service to `aud` by itself; the client that requests
+the token needs an audience mapper for it (the local realm has one on
+`skeleton-cli`, see `deploy/keycloak/realm.json`).
 
 What each endpoint requires is configured once, for both transports:
 
 ```yaml
 auth:
   issuer: https://keycloak.example.com/realms/acme
+  audience: go-skeleton
 endpoints:
   rules:
     - name: read-items

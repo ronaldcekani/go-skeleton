@@ -166,7 +166,10 @@ type Auth struct {
 	// means Issuer + "/protocol/openid-connect/certs". Set it when the app
 	// reaches Keycloak on a different address than the one in the tokens.
 	JWKSURL string `koanf:"jwks_url"`
-	// Audience, if set, must be present in the token's "aud" claim.
+	// Audience must be present in the token's "aud" claim. It is what ties
+	// a token to this service: without the check, a token issued for any
+	// other client of the realm would be accepted. Keycloak adds it through
+	// an audience mapper on the client or on a client scope.
 	Audience string        `koanf:"audience"`
 	Leeway   time.Duration `koanf:"leeway"`
 }
@@ -265,9 +268,10 @@ func Default() Config {
 		},
 		Migration: Migration{Command: "up"},
 		Auth: Auth{
-			Enabled: true,
-			Issuer:  "http://localhost:8081/realms/skeleton",
-			Leeway:  10 * time.Second,
+			Enabled:  true,
+			Issuer:   "http://localhost:8081/realms/skeleton",
+			Audience: "go-skeleton",
+			Leeway:   10 * time.Second,
 		},
 		RateLimit: RateLimit{Enabled: true},
 		Shutdown:  Shutdown{Timeout: 20 * time.Second, DrainDelay: 5 * time.Second},
@@ -413,6 +417,9 @@ func (c Config) Validate() error {
 		}
 		if c.Auth.Enabled && c.Auth.Issuer == "" {
 			errs = append(errs, errors.New("auth.issuer: required when auth is enabled"))
+		}
+		if c.Auth.Enabled && c.Auth.Audience == "" {
+			errs = append(errs, errors.New("auth.audience: required when auth is enabled"))
 		}
 		errs = append(errs, c.Endpoints.validate())
 	}

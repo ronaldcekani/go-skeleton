@@ -70,7 +70,7 @@ auth:
   enabled: true
   issuer: http://localhost:8081/realms/skeleton
   jwks_url: ""   # default: <issuer>/protocol/openid-connect/certs
-  audience: ""   # required "aud" claim; empty accepts tokens of any client (set it in production)
+  audience: go-skeleton   # tokens must carry this value in their "aud" claim
   leeway: 10s
 
 rate_limit:

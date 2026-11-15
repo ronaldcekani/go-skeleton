@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -59,6 +60,17 @@ func TestLoadRejectsInvalid(t *testing.T) {
 			}
 		})
 	}
+	t.Run("auth without an audience", func(t *testing.T) {
+		t.Setenv("APP_AUTH__AUDIENCE", "")
+		if _, err := Load(nil); err == nil || !strings.Contains(err.Error(), "auth.audience") {
+			t.Errorf("Load = %v, want an auth.audience error", err)
+		}
+		// Not needed when nothing is authenticated.
+		t.Setenv("APP_AUTH__ENABLED", "false")
+		if _, err := Load(nil); err != nil {
+			t.Errorf("Load with auth disabled = %v, want nil", err)
+		}
+	})
 	t.Run("same ports", func(t *testing.T) {
 		t.Setenv("APP_GRPC__PORT", "8080")
 		if _, err := Load(nil); err == nil {
