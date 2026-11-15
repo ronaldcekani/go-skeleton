@@ -466,6 +466,224 @@ func (*DeleteItemResponse) Descriptor() ([]byte, []int) {
 	return file_item_v1_item_proto_rawDescGZIP(), []int{8}
 }
 
+type UpdateItemRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Unset fields keep their current value. At least one must be set.
+	Name          *string `protobuf:"bytes,2,opt,name=name,proto3,oneof" json:"name,omitempty"`
+	Description   *string `protobuf:"bytes,3,opt,name=description,proto3,oneof" json:"description,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateItemRequest) Reset() {
+	*x = UpdateItemRequest{}
+	mi := &file_item_v1_item_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateItemRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateItemRequest) ProtoMessage() {}
+
+func (x *UpdateItemRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_item_v1_item_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateItemRequest.ProtoReflect.Descriptor instead.
+func (*UpdateItemRequest) Descriptor() ([]byte, []int) {
+	return file_item_v1_item_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *UpdateItemRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *UpdateItemRequest) GetName() string {
+	if x != nil && x.Name != nil {
+		return *x.Name
+	}
+	return ""
+}
+
+func (x *UpdateItemRequest) GetDescription() string {
+	if x != nil && x.Description != nil {
+		return *x.Description
+	}
+	return ""
+}
+
+type UpdateItemResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Item          *Item                  `protobuf:"bytes,1,opt,name=item,proto3" json:"item,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateItemResponse) Reset() {
+	*x = UpdateItemResponse{}
+	mi := &file_item_v1_item_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateItemResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateItemResponse) ProtoMessage() {}
+
+func (x *UpdateItemResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_item_v1_item_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateItemResponse.ProtoReflect.Descriptor instead.
+func (*UpdateItemResponse) Descriptor() ([]byte, []int) {
+	return file_item_v1_item_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *UpdateItemResponse) GetItem() *Item {
+	if x != nil {
+		return x.Item
+	}
+	return nil
+}
+
+type SearchItemsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Case-insensitive substring matched against name and description.
+	Query         string `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
+	Limit         int32  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	Offset        int32  `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchItemsRequest) Reset() {
+	*x = SearchItemsRequest{}
+	mi := &file_item_v1_item_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchItemsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchItemsRequest) ProtoMessage() {}
+
+func (x *SearchItemsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_item_v1_item_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchItemsRequest.ProtoReflect.Descriptor instead.
+func (*SearchItemsRequest) Descriptor() ([]byte, []int) {
+	return file_item_v1_item_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SearchItemsRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *SearchItemsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *SearchItemsRequest) GetOffset() int32 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+type SearchItemsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*Item                `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	Total         int64                  `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchItemsResponse) Reset() {
+	*x = SearchItemsResponse{}
+	mi := &file_item_v1_item_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchItemsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchItemsResponse) ProtoMessage() {}
+
+func (x *SearchItemsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_item_v1_item_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchItemsResponse.ProtoReflect.Descriptor instead.
+func (*SearchItemsResponse) Descriptor() ([]byte, []int) {
+	return file_item_v1_item_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SearchItemsResponse) GetItems() []*Item {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *SearchItemsResponse) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
 var File_item_v1_item_proto protoreflect.FileDescriptor
 
 const file_item_v1_item_proto_rawDesc = "" +
@@ -496,14 +714,32 @@ const file_item_v1_item_proto_rawDesc = "" +
 	"\x05total\x18\x02 \x01(\x03R\x05total\"#\n" +
 	"\x11DeleteItemRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x14\n" +
-	"\x12DeleteItemResponse2\x9d\x02\n" +
+	"\x12DeleteItemResponse\"|\n" +
+	"\x11UpdateItemRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
+	"\x04name\x18\x02 \x01(\tH\x00R\x04name\x88\x01\x01\x12%\n" +
+	"\vdescription\x18\x03 \x01(\tH\x01R\vdescription\x88\x01\x01B\a\n" +
+	"\x05_nameB\x0e\n" +
+	"\f_description\"7\n" +
+	"\x12UpdateItemResponse\x12!\n" +
+	"\x04item\x18\x01 \x01(\v2\r.item.v1.ItemR\x04item\"X\n" +
+	"\x12SearchItemsRequest\x12\x14\n" +
+	"\x05query\x18\x01 \x01(\tR\x05query\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06offset\x18\x03 \x01(\x05R\x06offset\"P\n" +
+	"\x13SearchItemsResponse\x12#\n" +
+	"\x05items\x18\x01 \x03(\v2\r.item.v1.ItemR\x05items\x12\x14\n" +
+	"\x05total\x18\x02 \x01(\x03R\x05total2\xae\x03\n" +
 	"\vItemService\x12E\n" +
 	"\n" +
 	"CreateItem\x12\x1a.item.v1.CreateItemRequest\x1a\x1b.item.v1.CreateItemResponse\x12<\n" +
 	"\aGetItem\x12\x17.item.v1.GetItemRequest\x1a\x18.item.v1.GetItemResponse\x12B\n" +
 	"\tListItems\x12\x19.item.v1.ListItemsRequest\x1a\x1a.item.v1.ListItemsResponse\x12E\n" +
 	"\n" +
-	"DeleteItem\x12\x1a.item.v1.DeleteItemRequest\x1a\x1b.item.v1.DeleteItemResponseBBZ@github.com/example/go-skeleton/internal/gen/proto/item/v1;itemv1b\x06proto3"
+	"DeleteItem\x12\x1a.item.v1.DeleteItemRequest\x1a\x1b.item.v1.DeleteItemResponse\x12E\n" +
+	"\n" +
+	"UpdateItem\x12\x1a.item.v1.UpdateItemRequest\x1a\x1b.item.v1.UpdateItemResponse\x12H\n" +
+	"\vSearchItems\x12\x1b.item.v1.SearchItemsRequest\x1a\x1c.item.v1.SearchItemsResponseBBZ@github.com/example/go-skeleton/internal/gen/proto/item/v1;itemv1b\x06proto3"
 
 var (
 	file_item_v1_item_proto_rawDescOnce sync.Once
@@ -517,7 +753,7 @@ func file_item_v1_item_proto_rawDescGZIP() []byte {
 	return file_item_v1_item_proto_rawDescData
 }
 
-var file_item_v1_item_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_item_v1_item_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_item_v1_item_proto_goTypes = []any{
 	(*Item)(nil),                  // 0: item.v1.Item
 	(*CreateItemRequest)(nil),     // 1: item.v1.CreateItemRequest
@@ -528,27 +764,37 @@ var file_item_v1_item_proto_goTypes = []any{
 	(*ListItemsResponse)(nil),     // 6: item.v1.ListItemsResponse
 	(*DeleteItemRequest)(nil),     // 7: item.v1.DeleteItemRequest
 	(*DeleteItemResponse)(nil),    // 8: item.v1.DeleteItemResponse
-	(*timestamppb.Timestamp)(nil), // 9: google.protobuf.Timestamp
+	(*UpdateItemRequest)(nil),     // 9: item.v1.UpdateItemRequest
+	(*UpdateItemResponse)(nil),    // 10: item.v1.UpdateItemResponse
+	(*SearchItemsRequest)(nil),    // 11: item.v1.SearchItemsRequest
+	(*SearchItemsResponse)(nil),   // 12: item.v1.SearchItemsResponse
+	(*timestamppb.Timestamp)(nil), // 13: google.protobuf.Timestamp
 }
 var file_item_v1_item_proto_depIdxs = []int32{
-	9, // 0: item.v1.Item.created_at:type_name -> google.protobuf.Timestamp
-	9, // 1: item.v1.Item.updated_at:type_name -> google.protobuf.Timestamp
-	0, // 2: item.v1.CreateItemResponse.item:type_name -> item.v1.Item
-	0, // 3: item.v1.GetItemResponse.item:type_name -> item.v1.Item
-	0, // 4: item.v1.ListItemsResponse.items:type_name -> item.v1.Item
-	1, // 5: item.v1.ItemService.CreateItem:input_type -> item.v1.CreateItemRequest
-	3, // 6: item.v1.ItemService.GetItem:input_type -> item.v1.GetItemRequest
-	5, // 7: item.v1.ItemService.ListItems:input_type -> item.v1.ListItemsRequest
-	7, // 8: item.v1.ItemService.DeleteItem:input_type -> item.v1.DeleteItemRequest
-	2, // 9: item.v1.ItemService.CreateItem:output_type -> item.v1.CreateItemResponse
-	4, // 10: item.v1.ItemService.GetItem:output_type -> item.v1.GetItemResponse
-	6, // 11: item.v1.ItemService.ListItems:output_type -> item.v1.ListItemsResponse
-	8, // 12: item.v1.ItemService.DeleteItem:output_type -> item.v1.DeleteItemResponse
-	9, // [9:13] is the sub-list for method output_type
-	5, // [5:9] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	13, // 0: item.v1.Item.created_at:type_name -> google.protobuf.Timestamp
+	13, // 1: item.v1.Item.updated_at:type_name -> google.protobuf.Timestamp
+	0,  // 2: item.v1.CreateItemResponse.item:type_name -> item.v1.Item
+	0,  // 3: item.v1.GetItemResponse.item:type_name -> item.v1.Item
+	0,  // 4: item.v1.ListItemsResponse.items:type_name -> item.v1.Item
+	0,  // 5: item.v1.UpdateItemResponse.item:type_name -> item.v1.Item
+	0,  // 6: item.v1.SearchItemsResponse.items:type_name -> item.v1.Item
+	1,  // 7: item.v1.ItemService.CreateItem:input_type -> item.v1.CreateItemRequest
+	3,  // 8: item.v1.ItemService.GetItem:input_type -> item.v1.GetItemRequest
+	5,  // 9: item.v1.ItemService.ListItems:input_type -> item.v1.ListItemsRequest
+	7,  // 10: item.v1.ItemService.DeleteItem:input_type -> item.v1.DeleteItemRequest
+	9,  // 11: item.v1.ItemService.UpdateItem:input_type -> item.v1.UpdateItemRequest
+	11, // 12: item.v1.ItemService.SearchItems:input_type -> item.v1.SearchItemsRequest
+	2,  // 13: item.v1.ItemService.CreateItem:output_type -> item.v1.CreateItemResponse
+	4,  // 14: item.v1.ItemService.GetItem:output_type -> item.v1.GetItemResponse
+	6,  // 15: item.v1.ItemService.ListItems:output_type -> item.v1.ListItemsResponse
+	8,  // 16: item.v1.ItemService.DeleteItem:output_type -> item.v1.DeleteItemResponse
+	10, // 17: item.v1.ItemService.UpdateItem:output_type -> item.v1.UpdateItemResponse
+	12, // 18: item.v1.ItemService.SearchItems:output_type -> item.v1.SearchItemsResponse
+	13, // [13:19] is the sub-list for method output_type
+	7,  // [7:13] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_item_v1_item_proto_init() }
@@ -556,13 +802,14 @@ func file_item_v1_item_proto_init() {
 	if File_item_v1_item_proto != nil {
 		return
 	}
+	file_item_v1_item_proto_msgTypes[9].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_item_v1_item_proto_rawDesc), len(file_item_v1_item_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

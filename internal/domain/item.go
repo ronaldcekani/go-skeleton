@@ -13,6 +13,7 @@ const (
 	MaxItemDescriptionLen = 2000
 	DefaultPageSize       = 20
 	MaxPageSize           = 100
+	MaxSearchQueryLen     = 200
 )
 
 type Item struct {
@@ -57,6 +58,44 @@ func (in ListItemsInput) Validate() error {
 		return InvalidInput("offset must not be negative")
 	}
 	return nil
+}
+
+// UpdateItemInput changes an item. A nil field keeps its current value.
+type UpdateItemInput struct {
+	Name        *string
+	Description *string
+}
+
+func (in UpdateItemInput) Validate() error {
+	switch {
+	case in.Name == nil && in.Description == nil:
+		return InvalidInput("at least one of name or description is required")
+	case in.Name != nil && *in.Name == "":
+		return InvalidInput("name must not be empty")
+	case in.Name != nil && len(*in.Name) > MaxItemNameLen:
+		return InvalidInput("name must be at most %d characters", MaxItemNameLen)
+	case in.Description != nil && len(*in.Description) > MaxItemDescriptionLen:
+		return InvalidInput("description must be at most %d characters", MaxItemDescriptionLen)
+	}
+	return nil
+}
+
+// SearchItemsInput selects one page of the items whose name or description
+// contains Query, case-insensitively.
+type SearchItemsInput struct {
+	Query  string
+	Limit  int // 0 means DefaultPageSize
+	Offset int
+}
+
+func (in SearchItemsInput) Validate() error {
+	switch {
+	case in.Query == "":
+		return InvalidInput("query is required")
+	case len(in.Query) > MaxSearchQueryLen:
+		return InvalidInput("query must be at most %d characters", MaxSearchQueryLen)
+	}
+	return ListItemsInput{Limit: in.Limit, Offset: in.Offset}.Validate()
 }
 
 // ItemCreatedEvent is published when an item has been created.

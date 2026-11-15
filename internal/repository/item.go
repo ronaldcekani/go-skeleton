@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -72,6 +73,52 @@ func (r *ItemRepository) List(ctx context.Context, limit, offset int) ([]domain.
 	}
 	return items, total, nil
 }
+
+// Update sets the non-nil fields of in and bumps updated_at.
+func (r *ItemRepository) Update(ctx context.Context, id uuid.UUID, in domain.UpdateItemInput) (domain.Item, error) {
+	const q = `
+		UPDATE items
+		SET name = COALESCE($2, name),
+		    description = COALESCE($3, description),
+		    updated_at = now()
+		WHERE id = $1
+		RETURNING ` + itemColumns
+
+	var out domain.Item
+	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &out, q, id, in.Name, in.Description); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.Item{}, domain.NotFound("item not found")
+		}
+		return domain.Item{}, fmt.Errorf("update item: %w", err)
+	}
+	return out, nil
+}
+
+// Search returns one page of the items whose name or description contains
+// query (case-insensitive), newest first, and the total number of matches.
+// This is a sequential scan; add a pg_trgm index or full-text search when
+// the table grows.
+func (r *ItemRepository) Search(ctx context.Context, query string, limit, offset int) ([]domain.Item, int64, error) {
+	const where = ` FROM items WHERE name ILIKE $1 OR description ILIKE $1`
+	const q = `SELECT ` + itemColumns + where + `
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2 OFFSET $3`
+
+	pattern := "%" + likeEscaper.Replace(query) + "%"
+	items := make([]domain.Item, 0, limit)
+	if err := postgres.Conn(ctx, r.db).SelectContext(ctx, &items, q, pattern, limit, offset); err != nil {
+		return nil, 0, fmt.Errorf("search items: %w", err)
+	}
+	var total int64
+	if err := postgres.Conn(ctx, r.db).GetContext(ctx, &total, `SELECT count(*)`+where, pattern); err != nil {
+		return nil, 0, fmt.Errorf("count search results: %w", err)
+	}
+	return items, total, nil
+}
+
+// likeEscaper makes LIKE wildcards in user input match literally ("\" is
+// the default escape character in Postgres).
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
 func (r *ItemRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	res, err := postgres.Conn(ctx, r.db).ExecContext(ctx, `DELETE FROM items WHERE id = $1`, id)

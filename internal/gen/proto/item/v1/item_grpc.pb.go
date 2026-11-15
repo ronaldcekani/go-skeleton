@@ -19,10 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ItemService_CreateItem_FullMethodName = "/item.v1.ItemService/CreateItem"
-	ItemService_GetItem_FullMethodName    = "/item.v1.ItemService/GetItem"
-	ItemService_ListItems_FullMethodName  = "/item.v1.ItemService/ListItems"
-	ItemService_DeleteItem_FullMethodName = "/item.v1.ItemService/DeleteItem"
+	ItemService_CreateItem_FullMethodName  = "/item.v1.ItemService/CreateItem"
+	ItemService_GetItem_FullMethodName     = "/item.v1.ItemService/GetItem"
+	ItemService_ListItems_FullMethodName   = "/item.v1.ItemService/ListItems"
+	ItemService_DeleteItem_FullMethodName  = "/item.v1.ItemService/DeleteItem"
+	ItemService_UpdateItem_FullMethodName  = "/item.v1.ItemService/UpdateItem"
+	ItemService_SearchItems_FullMethodName = "/item.v1.ItemService/SearchItems"
 )
 
 // ItemServiceClient is the client API for ItemService service.
@@ -35,6 +37,10 @@ type ItemServiceClient interface {
 	GetItem(ctx context.Context, in *GetItemRequest, opts ...grpc.CallOption) (*GetItemResponse, error)
 	ListItems(ctx context.Context, in *ListItemsRequest, opts ...grpc.CallOption) (*ListItemsResponse, error)
 	DeleteItem(ctx context.Context, in *DeleteItemRequest, opts ...grpc.CallOption) (*DeleteItemResponse, error)
+	// UpdateItem changes only the fields that are set.
+	UpdateItem(ctx context.Context, in *UpdateItemRequest, opts ...grpc.CallOption) (*UpdateItemResponse, error)
+	// SearchItems finds items whose name or description contains the query.
+	SearchItems(ctx context.Context, in *SearchItemsRequest, opts ...grpc.CallOption) (*SearchItemsResponse, error)
 }
 
 type itemServiceClient struct {
@@ -85,6 +91,26 @@ func (c *itemServiceClient) DeleteItem(ctx context.Context, in *DeleteItemReques
 	return out, nil
 }
 
+func (c *itemServiceClient) UpdateItem(ctx context.Context, in *UpdateItemRequest, opts ...grpc.CallOption) (*UpdateItemResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateItemResponse)
+	err := c.cc.Invoke(ctx, ItemService_UpdateItem_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *itemServiceClient) SearchItems(ctx context.Context, in *SearchItemsRequest, opts ...grpc.CallOption) (*SearchItemsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SearchItemsResponse)
+	err := c.cc.Invoke(ctx, ItemService_SearchItems_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ItemServiceServer is the server API for ItemService service.
 // All implementations must embed UnimplementedItemServiceServer
 // for forward compatibility.
@@ -95,6 +121,10 @@ type ItemServiceServer interface {
 	GetItem(context.Context, *GetItemRequest) (*GetItemResponse, error)
 	ListItems(context.Context, *ListItemsRequest) (*ListItemsResponse, error)
 	DeleteItem(context.Context, *DeleteItemRequest) (*DeleteItemResponse, error)
+	// UpdateItem changes only the fields that are set.
+	UpdateItem(context.Context, *UpdateItemRequest) (*UpdateItemResponse, error)
+	// SearchItems finds items whose name or description contains the query.
+	SearchItems(context.Context, *SearchItemsRequest) (*SearchItemsResponse, error)
 	mustEmbedUnimplementedItemServiceServer()
 }
 
@@ -116,6 +146,12 @@ func (UnimplementedItemServiceServer) ListItems(context.Context, *ListItemsReque
 }
 func (UnimplementedItemServiceServer) DeleteItem(context.Context, *DeleteItemRequest) (*DeleteItemResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteItem not implemented")
+}
+func (UnimplementedItemServiceServer) UpdateItem(context.Context, *UpdateItemRequest) (*UpdateItemResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateItem not implemented")
+}
+func (UnimplementedItemServiceServer) SearchItems(context.Context, *SearchItemsRequest) (*SearchItemsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SearchItems not implemented")
 }
 func (UnimplementedItemServiceServer) mustEmbedUnimplementedItemServiceServer() {}
 func (UnimplementedItemServiceServer) testEmbeddedByValue()                     {}
@@ -210,6 +246,42 @@ func _ItemService_DeleteItem_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ItemService_UpdateItem_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateItemRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ItemServiceServer).UpdateItem(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ItemService_UpdateItem_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ItemServiceServer).UpdateItem(ctx, req.(*UpdateItemRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ItemService_SearchItems_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SearchItemsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ItemServiceServer).SearchItems(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ItemService_SearchItems_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ItemServiceServer).SearchItems(ctx, req.(*SearchItemsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ItemService_ServiceDesc is the grpc.ServiceDesc for ItemService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -232,6 +304,14 @@ var ItemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteItem",
 			Handler:    _ItemService_DeleteItem_Handler,
+		},
+		{
+			MethodName: "UpdateItem",
+			Handler:    _ItemService_UpdateItem_Handler,
+		},
+		{
+			MethodName: "SearchItems",
+			Handler:    _ItemService_SearchItems_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
